@@ -3,7 +3,7 @@ use core_foundation::{
     base::{CFType, CFTypeRef, TCFType},
     string::{CFString, CFStringRef},
 };
-use objc2::{autoreleasepool, MainThreadMarker};
+use objc2::{rc::autoreleasepool, MainThreadMarker};
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSDate, NSRunLoop};
 
