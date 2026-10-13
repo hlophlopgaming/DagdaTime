@@ -291,6 +291,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 fn main() {
     let smoke = std::env::args().any(|argument| argument == "--smoke-test");
     let runtime_test = std::env::args().any(|argument| argument == "--runtime-test");
+    if (smoke || runtime_test) && std::env::var_os("DAGDATIME_DATA_DIR").is_none() {
+        // Test modes record fixture activity; never write it into the user's history.
+        let directory = std::env::temp_dir().join(format!("dagdatime-test-{}", std::process::id()));
+        std::env::set_var("DAGDATIME_DATA_DIR", directory);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show(app, false)

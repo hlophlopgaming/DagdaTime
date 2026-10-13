@@ -288,3 +288,28 @@ Compare the serialized contents of event, tag and tag-range arrays before
 replacing frontend state. IDs and end times alone miss edits to existing tags,
 range starts, assignments and notes. An exact comparison also avoids hash
 collisions; this runs only on the ten-second history poll.
+
+## 2026-10-14 — Review fixes for the Iced app, icons and release
+
+- **Stale loads.** An Iced history load started before a date change, demo
+  toggle or recording start could finish afterwards and replace the new view;
+  after toggling the demo on, real history could stay on screen labelled as a
+  preview. Loads now carry a generation number and results from an older
+  generation are dropped.
+- **Idle redraws.** Every 2 s poll rebuilt summaries and cleared the canvas
+  cache, even when nothing had changed, and past days were re-read forever.
+  Identical snapshots are now ignored, only today is re-polled, and the Linux
+  theme portal is polled only while a window is open.
+- **Tray.** The Iced tray pushed every menu text and a new icon to the OS once
+  per second. It now pushes only what changed, as the Tauri tray does.
+- **Linux icon lookup.** Each cache miss re-read every `.desktop` file and
+  resolved each Exec through PATH; the preview picker did this per candidate,
+  so startup on the UI thread grew quadratically with installed applications.
+  Entries are now parsed once into a shared index, rebuilt after 5 minutes so
+  new installs are found. Matching rules are unchanged.
+- **Test modes.** `--smoke-test`, `--runtime-test` and `--lifecycle-test`
+  default to a temporary data directory when `DAGDATIME_DATA_DIR` is unset, so
+  a local run cannot write fixture activity into real history.
+  `--autostart-test` restores the previous login-item setting.
+- **Release archives.** `actions/upload-artifact` drops file modes; the release
+  job restores the executable bit before packing the Linux and macOS binaries.

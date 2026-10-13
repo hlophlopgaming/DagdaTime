@@ -120,6 +120,9 @@ jobs:
       - name: Package desktop binaries
         run: |
           mkdir -p release
+          # upload-artifact does not preserve file modes; restore the executable bit
+          # or the extracted Linux/macOS binaries fail with "permission denied".
+          chmod +x artifacts/DagdaTime-Iced-Linux/dagdatime-iced artifacts/DagdaTime-Iced-macOS/dagdatime-iced
           tar -C artifacts/DagdaTime-Iced-Linux -czf release/DagdaTime-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz dagdatime-iced
           tar -C artifacts/DagdaTime-Iced-macOS -czf release/DagdaTime-${GITHUB_REF_NAME}-macOS.tar.gz dagdatime-iced
           cd artifacts/DagdaTime-Iced-Windows

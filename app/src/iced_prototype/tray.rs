@@ -1,5 +1,6 @@
 use super::model;
 use serde_json::Value;
+use std::cell::RefCell;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     Icon, TrayIcon, TrayIconBuilder,
@@ -12,6 +13,19 @@ pub struct Tray {
     total: MenuItem,
     pause: MenuItem,
     resume: MenuItem,
+    /// What the tray currently shows. `update` runs every second; menu text and the
+    /// icon are only pushed to the OS when they change (on Linux every `set_icon`
+    /// writes a new PNG for the indicator).
+    shown: RefCell<Option<Shown>>,
+}
+#[derive(Clone, PartialEq)]
+struct Shown {
+    label: &'static str,
+    color: [u8; 3],
+    activity: String,
+    total: String,
+    pause: bool,
+    resume: bool,
 }
 impl Tray {
     pub fn new() -> Result<Self, String> {
@@ -47,6 +61,7 @@ impl Tray {
             total,
             pause,
             resume,
+            shown: RefCell::new(None),
         })
     }
     fn image(color: [u8; 3]) -> Icon {
@@ -71,28 +86,50 @@ impl Tray {
             "starting" => ("Starting", [130, 145, 160]),
             _ => ("Preview · no recording", [130, 145, 160]),
         };
-        self.status.set_text(label);
-        self.pause
-            .set_enabled(state != "preview" && state != "paused");
-        self.resume.set_enabled(state == "paused");
-        let app = status["current_window"]["app"]
-            .as_str()
-            .map(model::process_label)
-            .unwrap_or("No current activity");
-        self.activity.set_text(app);
-        self.total.set_text(format!(
-            "{}: {}",
-            if demo {
-                "Preview active time"
-            } else {
-                "Selected day active time"
-            },
-            model::duration(active)
-        ));
-        let _ = self.icon.set_icon(Some(Self::image(color)));
-        let _ = self
-            .icon
-            .set_tooltip(Some(format!("DagdaTime Iced · {label}")));
+        let next = Shown {
+            label,
+            color,
+            activity: status["current_window"]["app"]
+                .as_str()
+                .map(model::process_label)
+                .unwrap_or("No current activity")
+                .to_owned(),
+            total: format!(
+                "{}: {}",
+                if demo {
+                    "Preview active time"
+                } else {
+                    "Selected day active time"
+                },
+                model::duration(active)
+            ),
+            pause: state != "preview" && state != "paused",
+            resume: state == "paused",
+        };
+        let mut shown = self.shown.borrow_mut();
+        let old = shown.as_ref();
+        if old.is_none_or(|old| old.label != next.label) {
+            self.status.set_text(next.label);
+        }
+        if old.is_none_or(|old| old.activity != next.activity) {
+            self.activity.set_text(&next.activity);
+        }
+        if old.is_none_or(|old| old.total != next.total) {
+            self.total.set_text(&next.total);
+        }
+        if old.is_none_or(|old| old.pause != next.pause) {
+            self.pause.set_enabled(next.pause);
+        }
+        if old.is_none_or(|old| old.resume != next.resume) {
+            self.resume.set_enabled(next.resume);
+        }
+        if old.is_none_or(|old| (old.label, old.color) != (next.label, next.color)) {
+            let _ = self.icon.set_icon(Some(Self::image(next.color)));
+            let _ = self
+                .icon
+                .set_tooltip(Some(format!("DagdaTime Iced · {}", next.label)));
+        }
+        *shown = Some(next);
     }
     pub fn events() -> Vec<String> {
         #[cfg(target_os = "linux")]

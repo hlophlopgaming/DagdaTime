@@ -28,8 +28,9 @@ fn desktop_values(text: &str) -> std::collections::HashMap<&str, &str> {
     values
 }
 #[cfg(target_os = "linux")]
-fn desktop_executable(text: &str) -> Option<std::path::PathBuf> {
-    let values = desktop_values(text);
+fn desktop_executable(
+    values: &std::collections::HashMap<&str, &str>,
+) -> Option<std::path::PathBuf> {
     let tokens = shlex::split(values.get("Exec")?)?;
     let mut arguments = tokens.iter();
     let mut executable = arguments.next()?;
@@ -42,21 +43,53 @@ fn desktop_executable(text: &str) -> Option<std::path::PathBuf> {
     }
     resolve_executable(executable)
 }
+
+/// The parts of a `.desktop` file needed to match a running process to its icon.
+/// The executable is resolved through PATH once, when the entry is parsed.
 #[cfg(target_os = "linux")]
-fn desktop_icon(text: &str, process: &std::path::Path, app_name: &str) -> Option<(u8, String)> {
-    let process = process.canonicalize().ok()?;
-    if desktop_executable(text)? != process {
-        return None;
+struct DesktopEntry {
+    executable: std::path::PathBuf,
+    icon: Option<String>,
+    name: Option<String>,
+    wm_class: Option<String>,
+    /// Shown in launchers: an Application that is neither NoDisplay nor Hidden.
+    listed: bool,
+}
+#[cfg(target_os = "linux")]
+impl DesktopEntry {
+    fn parse(text: &str) -> Option<Self> {
+        let values = desktop_values(text);
+        Some(Self {
+            executable: desktop_executable(&values)?,
+            icon: values.get("Icon").map(|value| (*value).to_owned()),
+            name: values.get("Name").map(|value| (*value).to_owned()),
+            wm_class: values
+                .get("StartupWMClass")
+                .map(|value| (*value).to_owned()),
+            listed: values.get("NoDisplay") != Some(&"true")
+                && values.get("Hidden") != Some(&"true")
+                && values.get("Type").is_none_or(|kind| *kind == "Application"),
+        })
     }
-    let values = desktop_values(text);
-    let icon = values.get("Icon")?.to_string();
-    let score = [values.get("Name"), values.get("StartupWMClass")]
-        .into_iter()
-        .flatten()
-        .map(|candidate| name_match_score(app_name, candidate))
-        .max()
-        .unwrap_or_default();
-    Some((score, icon))
+    /// `process` must already be canonical.
+    fn icon_for(&self, process: &std::path::Path, app_name: &str) -> Option<(u8, String)> {
+        if self.executable != process {
+            return None;
+        }
+        let icon = self.icon.clone()?;
+        let score = [self.name.as_deref(), self.wm_class.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(|candidate| name_match_score(app_name, candidate))
+            .max()
+            .unwrap_or_default();
+        Some((score, icon))
+    }
+}
+#[cfg(target_os = "linux")]
+#[cfg_attr(not(test), allow(dead_code))]
+fn desktop_icon(text: &str, process: &std::path::Path, app_name: &str) -> Option<(u8, String)> {
+    DesktopEntry::parse(text)?.icon_for(&process.canonicalize().ok()?, app_name)
 }
 #[cfg(target_os = "linux")]
 fn name_match_score(app_name: &str, candidate: &str) -> u8 {
@@ -82,14 +115,29 @@ fn name_match_score(app_name: &str, candidate: &str) -> u8 {
     }
 }
 #[cfg(target_os = "linux")]
+#[cfg_attr(not(test), allow(dead_code))]
 fn choose_desktop_icon(
     entries: &[String],
     process: &std::path::Path,
     app_name: &str,
 ) -> Option<String> {
+    let entries: Vec<_> = entries
+        .iter()
+        .map(String::as_str)
+        .filter_map(DesktopEntry::parse)
+        .collect();
+    choose_entry_icon(&entries, process, app_name)
+}
+#[cfg(target_os = "linux")]
+fn choose_entry_icon(
+    entries: &[DesktopEntry],
+    process: &std::path::Path,
+    app_name: &str,
+) -> Option<String> {
+    let process = process.canonicalize().ok()?;
     let matches: Vec<_> = entries
         .iter()
-        .filter_map(|text| desktop_icon(text, process, app_name))
+        .filter_map(|entry| entry.icon_for(&process, app_name))
         .collect();
     if matches.len() == 1 {
         return matches.into_iter().next().map(|(_, icon)| icon);
@@ -128,53 +176,62 @@ fn application_directories() -> Vec<std::path::PathBuf> {
     );
     directories
 }
+/// Every `.desktop` entry, read once and reused by all icon lookups. Rebuilt after
+/// a few minutes so newly installed applications are picked up. Previously each
+/// cache miss re-read and re-resolved every entry, which made startup quadratic in
+/// the number of installed applications.
+#[cfg(target_os = "linux")]
+fn desktop_index() -> std::sync::Arc<Vec<DesktopEntry>> {
+    use std::{
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
+    };
+    static INDEX: Mutex<Option<(Instant, Arc<Vec<DesktopEntry>>)>> = Mutex::new(None);
+    let mut index = INDEX.lock().unwrap();
+    if let Some((built, entries)) = index.as_ref() {
+        if built.elapsed() < Duration::from_secs(300) {
+            return entries.clone();
+        }
+    }
+    let entries: Arc<Vec<_>> = Arc::new(
+        application_directories()
+            .into_iter()
+            .flat_map(|directory| {
+                let mut files: Vec<_> = std::fs::read_dir(directory)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Result::ok)
+                    .collect();
+                files.sort_by_key(|file| file.file_name());
+                files
+            })
+            .filter(|file| {
+                file.path()
+                    .extension()
+                    .is_some_and(|extension| extension == "desktop")
+            })
+            .filter_map(|file| DesktopEntry::parse(&std::fs::read_to_string(file.path()).ok()?))
+            .collect(),
+    );
+    *index = Some((Instant::now(), entries.clone()));
+    entries
+}
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub fn preview_application_processes() -> Vec<(String, String)> {
     let mut candidates = Vec::new();
-    for directory in application_directories() {
-        let Ok(entries) = std::fs::read_dir(directory) else {
+    for entry in desktop_index().iter().filter(|entry| entry.listed) {
+        let Some(app_name) = entry.name.clone() else {
             continue;
         };
-        let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            if entry
-                .path()
-                .extension()
-                .is_none_or(|extension| extension != "desktop")
-            {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(entry.path()) else {
-                continue;
-            };
-            let values = desktop_values(&text);
-            if values.get("NoDisplay") == Some(&"true")
-                || values.get("Hidden") == Some(&"true")
-                || values
-                    .get("Type")
-                    .is_some_and(|kind| *kind != "Application")
-            {
-                continue;
-            }
-            let Some(process) = desktop_executable(&text) else {
-                continue;
-            };
-            let Some(app_name) = values.get("Name").map(|name| (*name).to_string()) else {
-                continue;
-            };
-            let process = process.to_string_lossy().into_owned();
-            let candidate = (process, app_name);
-            if candidates.contains(&candidate)
-                || SystemIcons.icon(&candidate.0, &candidate.1).is_none()
-            {
-                continue;
-            }
-            candidates.push(candidate);
-            if candidates.len() == 5 {
-                return candidates;
-            }
+        let candidate = (entry.executable.to_string_lossy().into_owned(), app_name);
+        if candidates.contains(&candidate) || SystemIcons.icon(&candidate.0, &candidate.1).is_none()
+        {
+            continue;
+        }
+        candidates.push(candidate);
+        if candidates.len() == 5 {
+            break;
         }
     }
     candidates
@@ -197,20 +254,7 @@ impl IconProvider for SystemIcons {
         if !process.is_absolute() {
             return None;
         }
-        let entries: Vec<_> = application_directories()
-            .into_iter()
-            .filter_map(|directory| std::fs::read_dir(directory).ok())
-            .flatten()
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let filename = entry.file_name();
-                filename
-                    .to_str()
-                    .filter(|filename| filename.ends_with(".desktop"))?;
-                std::fs::read_to_string(entry.path()).ok()
-            })
-            .collect();
-        let icon = choose_desktop_icon(&entries, process, app_name)?;
+        let icon = choose_entry_icon(&desktop_index(), process, app_name)?;
         let path = if std::path::Path::new(&icon).is_absolute() {
             std::path::PathBuf::from(icon)
         } else {
@@ -511,6 +555,35 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn desktop_entries_resolve_executable_and_launcher_visibility_once() {
+        let exe = std::env::current_exe().unwrap();
+        let entry = |extra: &str| {
+            format!(
+                "[Desktop Entry]\nType=Application\nName=App\nIcon=app\nExec=\"{}\" %U\n{extra}",
+                exe.display()
+            )
+        };
+        let shown = super::DesktopEntry::parse(&entry("")).unwrap();
+        assert!(shown.listed);
+        assert_eq!(shown.executable, exe.canonicalize().unwrap());
+        assert_eq!(
+            shown.icon_for(&exe.canonicalize().unwrap(), "App"),
+            Some((100, "app".into()))
+        );
+        assert!(
+            !super::DesktopEntry::parse(&entry("NoDisplay=true"))
+                .unwrap()
+                .listed
+        );
+        assert!(
+            !super::DesktopEntry::parse(&entry("Hidden=true"))
+                .unwrap()
+                .listed
+        );
+        assert!(super::DesktopEntry::parse("[Desktop Entry]\nName=No command").is_none());
     }
 
     #[test]
