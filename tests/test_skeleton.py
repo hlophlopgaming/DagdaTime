@@ -31,3 +31,10 @@ class SkeletonTests(unittest.TestCase):
                          "cargo fmt --check", "cargo clippy --all-targets -- -D warnings",
                          "cargo test", "cargo build --package dagdatime-app --release"):
             self.assertIn(required, workflow)
+
+class WaylandPackageTests(unittest.TestCase):
+    def test_kde_declarative_entrypoint_uses_required_ui_directory(self):
+        package = ROOT / 'watchers/wayland/kde'
+        metadata = json.loads((package / 'metadata.json').read_text())
+        self.assertEqual(metadata['X-Plasma-MainScript'], 'ui/main.qml')
+        self.assertTrue((package / 'contents/ui/main.qml').is_file())

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod embedded;
+mod icons;
 mod local;
 mod shell;
 
@@ -73,6 +74,15 @@ async fn choose_data_directory(app: tauri::AppHandle) -> Result<Value, String> {
             dagdatime_daemon::paths::save_choice(&config, &path).map_err(|e| e.to_string())?;
         }
         data_directory()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn application_icons(apps: Vec<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        serde_json::to_value(icons::application_icons(apps)).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -238,7 +248,8 @@ fn main() {
             start_tracking,
             frontend_ready,
             data_directory,
-            choose_data_directory
+            choose_data_directory,
+            application_icons
         ])
         .setup(move |app| {
             if !smoke && !runtime_test {

@@ -41,3 +41,14 @@ test('offline daemon has an actionable error state',async({page})=>{
   await expect(page.getByTestId('tracking-status')).toHaveText('Service offline');
   await expect(page.getByRole('button',{name:'Start tracking',exact:true})).toBeVisible();
 });
+
+test('application summary displays a native icon and an unknown-app fallback',async({page})=>{
+  await page.addInitScript(()=>{
+    const original=(window as any).__TAURI__.core.invoke;
+    (window as any).__TAURI__.core.invoke=async(command:string,args:any)=>command==='application_icons'?Object.fromEntries(args.apps.map((app:string)=>[app,app==='Editor'?'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibHVlIi8+PC9zdmc+':null])):original(command,args);
+  });
+  await page.goto('/');await page.getByRole('button',{name:'View demo',exact:true}).click();
+  await page.getByRole('tab',{name:'Applications',exact:true}).click();
+  await expect(page.getByRole('img',{name:'Editor icon'})).toBeVisible();
+  await expect(page.locator('.app-icon-fallback').first()).toBeVisible();
+});

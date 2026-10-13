@@ -172,3 +172,17 @@ interval unions rather than rendered pixels. Local calendar boundaries handle
 23/25-hour DST days; storage/API remain UTC milliseconds. Unknown gaps are
 unobserved, not invented computer-off events. Demo fixtures are opt-in and
 never persisted. Tag editing remains M5.
+
+## 2026-10-13 — KDE bridge verified and local application icons
+
+The declarative KWin package requires contents/ui/main.qml. Installation with
+kpackagetool6 exposed the incorrect code/ path; correcting it and enabling the
+script changed both real KDE/Wayland collectors to ready without restarting
+KWin. Add a package-layout regression test. The bridge is installed per-user.
+
+Application and document summaries and timeline tooltips show local system
+icons. Linux matches desktop IDs, StartupWMClass, Name and Exec to desktop
+entries, then resolves the icon through the installed theme. A native command
+returns bounded image data, caches lookups and accepts no arbitrary file paths.
+No icon downloads or schema changes. Unknown apps and other OSes currently use
+a stable initial badge; native Windows/macOS icon extraction remains pending.

@@ -3,7 +3,7 @@ export interface ActivityEvent {id:number;bucket:string;start_ts:number;end_ts:n
 export interface Tag {id:number;name:string;color?:string|null;parent_id?:number|null}
 export interface TagRange {id:number;tag_id:number;start_ts:number;end_ts:number;note?:string|null}
 export interface Dataset {events:ActivityEvent[];tags:Tag[];ranges:TagRange[]}
-export interface Segment extends Range {key:string;label:string;color:string;detail:string}
+export interface Segment extends Range {key:string;label:string;color:string;detail:string;app?:string}
 export interface Track {name:string;segments:Segment[]}
 export function dayBounds(date:string):Range {
   const start=new Date(`${date}T00:00:00`);const end=new Date(start);end.setDate(end.getDate()+1);
@@ -51,7 +51,7 @@ export function appColor(app:string){let hash=2166136261;for(const char of app){
 function text(value:unknown,fallback=''){return typeof value==='string'?value:fallback;}
 export function tracks(data:Dataset,day:Range):Track[]{
   const result:Track[]=[{name:'Tags',segments:[]},{name:'Computer',segments:[]},{name:'Applications',segments:[]},{name:'Documents',segments:[]}];
-  const add=(track:number,range:Range,key:string,label:string,color:string,detail:string)=>{const clipped=clip(range,day);if(clipped)result[track].segments.push({...clipped,key,label,color,detail});};
+  const add=(track:number,range:Range,key:string,label:string,color:string,detail:string)=>{const clipped=clip(range,day);if(clipped)result[track].segments.push({...clipped,key,label,color,detail,app:track===2?key:track===3?detail:undefined});};
   const tags=new Map(data.tags.map(tag=>[tag.id,tag]));
   for(const range of data.ranges){const tag=tags.get(range.tag_id);add(0,{start:range.start_ts,end:range.end_ts},String(range.tag_id),tag?.name??'Unknown tag',tag?.color??appColor(tag?.name??String(range.tag_id)),range.note??'');}
   for(const event of data.events){

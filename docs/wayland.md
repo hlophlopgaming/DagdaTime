@@ -18,6 +18,15 @@ Disable/uninstall the extension to stop sending samples.
 Install `watchers/wayland/kde` with
 `kpackagetool6 --type KWin/Script --install watchers/wayland/kde` and enable
 DagdaTime Watcher in System Settings → Window Management → KWin Scripts.
+The QML entry point must be `contents/ui/main.qml`. After installation, enable
+without restarting the session:
+
+```sh
+kwriteconfig6 --file kwinrc --group Plugins --key dagdatimeEnabled true
+qdbus6 org.kde.KWin /KWin reconfigure
+qdbus6 org.kde.KWin /Scripting start
+```
+
 The QML script sends focused-window samples once a second. Idle time comes
 from the compositor's `ext-idle-notify-v1` protocol, independently of the script.
 

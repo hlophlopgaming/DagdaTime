@@ -1,6 +1,7 @@
 import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import type {Status} from './shell.ts';
 import {request} from './client.ts';
+import AppIcon from './AppIcon.tsx';
 import {dayBounds,tracks as buildTracks,summarize,unionDuration,intersectionDuration,clip,pixelRange,zoomView,continuousSpan,fixture,duration,timeLabel} from './timeline.ts';
 import type {Dataset,Range,Segment,Track,ActivityEvent,Tag,TagRange} from './timeline.ts';
 
@@ -80,7 +81,7 @@ function Timeline({all,day,selection,onSelect,highlight}:{all:Track[];day:Range;
       </div>
     </div></div>
     <div className="timeline-legend"><span><i style={{background:'#5ea794'}}/>Active</span><span><i style={{background:'#d3af66'}}/>Away</span><span><i style={{background:'#7c8793'}}/>Unobserved</span><small>Unobserved gaps may include pauses or time with the computer off.</small></div>
-    {hover&&<div className="hover-card" style={{left:Math.min(window.innerWidth-300,hover.x+12),top:Math.min(window.innerHeight-145,hover.y+14)}}><strong>{hover.segment.label}</strong><p>{hover.segment.detail}</p><span>{timeLabel(hover.segment.start)}–{timeLabel(hover.segment.end)} · {duration(hover.segment.end-hover.segment.start)}</span></div>}
+    {hover&&<div className="hover-card" style={{left:Math.min(window.innerWidth-300,hover.x+12),top:Math.min(window.innerHeight-145,hover.y+14)}}><strong>{hover.segment.app&&<AppIcon app={hover.segment.app}/>} {hover.segment.label}</strong><p>{hover.segment.detail}</p><span>{timeLabel(hover.segment.start)}–{timeLabel(hover.segment.end)} · {duration(hover.segment.end-hover.segment.start)}</span></div>}
   </article>;
 }
 
@@ -114,7 +115,7 @@ export default function Day({date,search,status}:{date:string;search:string;stat
     {!data.events.length&&!data.ranges.length&&<div className="empty-day">{loading?'Loading your activity…':status?`No activity for this day yet. ${status.started_ts?`Tracking started at ${timeLabel(status.started_ts)}.`:''}`:'Start tracking to see your day, or explore the demo.'}</div>}
     <article className="panel summary-panel"><div className="selection-bar"><div><span className="selection-icon">⌗</span><strong data-testid="selection-caption">{selection?`Selection ${timeLabel(selection.start)}–${timeLabel(selection.end)} · ${duration(selection.end-selection.start)}`:'Whole day'}</strong>{selection&&<button className="clear-selection" onClick={()=>select(null)}>Clear selection</button>}</div><button disabled title="Time tagging is coming soon">Tag selection ↵</button></div>
       <div className="summary-header"><div role="tablist" aria-label="Selection summary">{['Tags','Applications','Documents'].map(name=><button key={name} role="tab" aria-selected={tab===name} onClick={()=>{setTab(name);setHighlight(null);setLimit(50);}}>{name}</button>)}</div><span><b data-testid="summary-total">{duration(summaryRows.reduce((sum,row)=>sum+row.duration,0))}</b> observed in this view</span></div>
-      <table className="summary-table"><thead><tr><th>{tab==='Tags'?'Project / tag':tab==='Applications'?'Application':'Document / URL'}</th><th>Duration</th><th>Share of time range</th><th aria-label="Proportion"/></tr></thead><tbody>{summaryRows.slice(0,limit).map(row=><tr key={row.key} onClick={()=>setHighlight(highlight===row.key?null:row.key)} className={highlight===row.key?'highlighted':''}><td><button onClick={event=>{event.stopPropagation();setHighlight(highlight===row.key?null:row.key);}}><i style={{background:row.color}}/>{row.label}</button></td><td>{duration(row.duration)}</td><td>{row.share.toFixed(1)}%</td><td><div className="share-bar"><i style={{width:`${Math.min(100,row.share)}%`,background:row.color}}/></div></td></tr>)}</tbody></table>
+      <table className="summary-table"><thead><tr><th>{tab==='Tags'?'Project / tag':tab==='Applications'?'Application':'Document / URL'}</th><th>Duration</th><th>Share of time range</th><th aria-label="Proportion"/></tr></thead><tbody>{summaryRows.slice(0,limit).map(row=><tr key={row.key} onClick={()=>setHighlight(highlight===row.key?null:row.key)} className={highlight===row.key?'highlighted':''}><td><button onClick={event=>{event.stopPropagation();setHighlight(highlight===row.key?null:row.key);}}>{tab==='Applications'||tab==='Documents'?<AppIcon app={row.key.split('\0')[0]}/>:<i style={{background:row.color}}/>}{row.label}</button></td><td>{duration(row.duration)}</td><td>{row.share.toFixed(1)}%</td><td><div className="share-bar"><i style={{width:`${Math.min(100,row.share)}%`,background:row.color}}/></div></td></tr>)}</tbody></table>
       {!summaryRows.length&&<p className="summary-empty">{search?'No matching activity in this range.':'No activity in this range yet.'}</p>}
       {summaryRows.length>limit&&<button className="show-more" onClick={()=>setLimit(value=>value+50)}>Show 50 more · {summaryRows.length-limit} remaining</button>}
       <div className="summary-footnote">Durations use interval unions; overlaps within the same item are counted once. Shares refer to the selected time range.</div>
