@@ -20,90 +20,51 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - uses: Swatinem/rust-cache@v2
-      - run: npm ci --prefix app/frontend
-      - run: npm --prefix app/frontend test
-      - run: npm --prefix app/frontend run build
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev libxkbcommon-x11-dev librsvg2-dev patchelf xvfb
+          sudo apt-get install -y build-essential libgtk-3-dev libayatana-appindicator3-dev libxkbcommon-x11-dev librsvg2-dev xvfb
       - run: python -m unittest discover -s tests
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - name: Verify native X11 watcher and debug polling
         if: runner.os == 'Linux'
-        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package dagdatime-watchers --package dagdatime-daemon -- --ignored --test-threads=1
-      - run: cargo build --package dagdatime-daemon
-      - run: cargo build --package dagdatime-app --release
-      - name: Launch desktop and verify frontend readiness (Linux)
-        if: runner.os == 'Linux'
-        run: dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-runtime" xvfb-run -a target/release/dagdatime-app --runtime-test
-      - name: Launch desktop and verify frontend readiness (macOS)
-        if: runner.os == 'macOS'
-        run: DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-runtime" target/release/dagdatime-app --runtime-test
-      - name: Launch desktop and verify frontend readiness (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP 'dagdatime-runtime'
-          $process = Start-Process target/release/dagdatime-app.exe -ArgumentList '--runtime-test' -PassThru -Wait
-          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
-      - name: Launch Iced prototype (Linux)
+        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package draugr-time-watchers --package draugr-time-daemon -- --ignored --test-threads=1
+      - run: cargo build --package draugr-time --release
+      - name: Launch desktop (Linux)
         if: runner.os == 'Linux'
         run: |
-          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/dagdatime-iced --smoke-test
-          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" xvfb-run -a target/release/dagdatime-iced --runtime-test
-          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" xvfb-run -a target/release/dagdatime-iced --lifecycle-test
-          mkdir -p "$RUNNER_TEMP/dagdatime-iced-autostart-home"
-          HOME="$RUNNER_TEMP/dagdatime-iced-autostart-home" target/release/dagdatime-iced --autostart-test
-      - name: Launch Iced prototype (macOS)
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/draugr-time --smoke-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-runtime" xvfb-run -a target/release/draugr-time --runtime-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" xvfb-run -a target/release/draugr-time --lifecycle-test
+          XDG_CONFIG_HOME="$RUNNER_TEMP/draugr-time-autostart" target/release/draugr-time --autostart-test
+      - name: Launch desktop (macOS)
         if: runner.os == 'macOS'
         run: |
-          target/release/dagdatime-iced --smoke-test
-          DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" target/release/dagdatime-iced --runtime-test
-          DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" target/release/dagdatime-iced --lifecycle-test
-          mkdir -p "$RUNNER_TEMP/dagdatime-iced-autostart-home/Library/LaunchAgents"
-          HOME="$RUNNER_TEMP/dagdatime-iced-autostart-home" target/release/dagdatime-iced --autostart-test
-          target/release/dagdatime-iced --autostart-test
-      - name: Launch Iced prototype (Windows)
+          target/release/draugr-time --smoke-test
+          DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-runtime" target/release/draugr-time --runtime-test
+          DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" target/release/draugr-time --lifecycle-test
+          target/release/draugr-time --autostart-test
+      - name: Launch desktop (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           foreach ($mode in @('--smoke-test','--runtime-test','--lifecycle-test','--autostart-test')) {
             $name = $mode.TrimStart('-')
-            $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP "dagdatime-iced-$name"
-            $process = Start-Process target/release/dagdatime-iced.exe -ArgumentList $mode -PassThru -Wait
+            $env:DRAUGR_TIME_DATA_DIR = Join-Path $env:RUNNER_TEMP "draugr-time-$name"
+            $process = Start-Process target/release/draugr-time.exe -ArgumentList $mode -PassThru -Wait
             if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           }
-      - name: Browser UI tests
-        if: runner.os == 'Linux'
-        run: |
-          cd app/frontend
-          npx playwright install --with-deps chromium
-          npm run test:e2e
-
       - name: Upload desktop executable
         uses: actions/upload-artifact@v4
         with:
-          name: DagdaTime-${{ runner.os }}
+          name: Draugr-Time-${{ runner.os }}
           path: |
-            target/release/dagdatime-app
-            target/release/dagdatime-app.exe
-          if-no-files-found: error
-
-      - name: Upload Iced prototype
-        uses: actions/upload-artifact@v4
-        with:
-          name: DagdaTime-Iced-${{ runner.os }}
-          path: |
-            target/release/dagdatime-iced
-            target/release/dagdatime-iced.exe
+            target/release/draugr-time
+            target/release/draugr-time.exe
           if-no-files-found: error
 
   release:
@@ -115,19 +76,17 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: DagdaTime-Iced-*
+          pattern: Draugr-Time-*
           path: artifacts
       - name: Package desktop binaries
         run: |
           mkdir -p release
-          # upload-artifact does not preserve file modes; restore the executable bit
-          # or the extracted Linux/macOS binaries fail with "permission denied".
-          chmod +x artifacts/DagdaTime-Iced-Linux/dagdatime-iced artifacts/DagdaTime-Iced-macOS/dagdatime-iced
-          tar -C artifacts/DagdaTime-Iced-Linux -czf release/DagdaTime-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz dagdatime-iced
-          tar -C artifacts/DagdaTime-Iced-macOS -czf release/DagdaTime-${GITHUB_REF_NAME}-macOS.tar.gz dagdatime-iced
-          cd artifacts/DagdaTime-Iced-Windows
-          zip "../../release/DagdaTime-${GITHUB_REF_NAME}-Windows-x86_64.zip" dagdatime-iced.exe
+          chmod +x artifacts/Draugr-Time-Linux/draugr-time artifacts/Draugr-Time-macOS/draugr-time
+          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time
+          tar -C artifacts/Draugr-Time-macOS -czf release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz draugr-time
+          cd artifacts/Draugr-Time-Windows
+          zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --repo hlophlopgaming/DagdaTime --title "DagdaTime $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" release/* --repo "${{ github.repository }}" --title "Draugr Time $GITHUB_REF_NAME" --generate-notes

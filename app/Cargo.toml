@@ -1,35 +1,24 @@
 [package]
-name = "dagdatime-app"
-default-run = "dagdatime-app"
+name = "draugr-time"
+default-run = "draugr-time"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
-
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
 serde_json = "1"
-dagdatime-daemon = { path = "../daemon" }
-dagdatime-core.workspace = true
-dagdatime-watchers.workspace = true
-tauri-plugin-single-instance = "2"
-tauri-plugin-dialog = "2"
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
+draugr-time-daemon = { path = "../daemon" }
+draugr-time-core.workspace = true
+draugr-time-watchers.workspace = true
 chrono = "0.4"
 auto-launch = "0.6"
 iced = { version = "0.14", default-features = false, features = ["advanced", "tiny-skia", "canvas", "tokio", "image-without-codecs", "svg", "x11", "wayland"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 png = "0.18"
-rfd = { version = "0.16", default-features = false }
+rfd = { version = "0.16", default-features = false, features = ["gtk3", "common-controls-v6"] }
 tray-icon = { version = "0.25", default-features = false, features = ["libappindicator"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 base64 = "0.22"
-
-[features]
-default = ["custom-protocol"]
-custom-protocol = ["tauri/custom-protocol"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 freedesktop-icons = "0.4"

@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use dagdatime_core::{Collection, StorageError};
+use draugr_time_core::{Collection, StorageError};
 use serde::Deserialize;
 use serde_json::{json, Value};
 

@@ -31,14 +31,23 @@ pub struct SystemStartup(AutoLaunch);
 
 impl SystemStartup {
     pub fn new() -> Result<Self, String> {
+        Self::for_name("Draugr Time", "org.draugrtime.app")
+    }
+
+    pub fn migrate_legacy(&mut self) -> Result<(), String> {
+        let mut legacy = Self::for_name("DagdaTime", "org.dagdatime.app")?;
+        migrate_registration(&mut legacy, self)
+    }
+
+    fn for_name(name: &str, bundle_identifier: &str) -> Result<Self, String> {
         let path = std::env::current_exe().map_err(|error| error.to_string())?;
         let path = path.to_string_lossy();
         let mut builder = AutoLaunchBuilder::new();
         builder
-            .set_app_name("DagdaTime")
+            .set_app_name(name)
             .set_app_path(&path)
             .set_args(&["--autostart", "--minimized"])
-            .set_bundle_identifiers(&["org.dagdatime.app"]);
+            .set_bundle_identifiers(&[bundle_identifier]);
         #[cfg(target_os = "linux")]
         builder.set_linux_launch_mode(auto_launch::LinuxLaunchMode::XdgAutostart);
         #[cfg(target_os = "macos")]
@@ -69,6 +78,21 @@ pub fn set_enabled(provider: &mut impl StartupProvider, enabled: bool) -> Result
     provider.is_enabled()
 }
 
+pub fn migrate_registration(
+    legacy: &mut impl StartupProvider,
+    current: &mut impl StartupProvider,
+) -> Result<(), String> {
+    if legacy.is_enabled()? {
+        if !set_enabled(current, true)? {
+            return Err("New startup registration did not become enabled".into());
+        }
+        if set_enabled(legacy, false)? {
+            return Err("Legacy startup registration could not be disabled".into());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +111,42 @@ mod tests {
             self.enabled = enabled;
             Ok(())
         }
+    }
+
+    #[test]
+    fn rename_moves_enabled_startup_to_the_new_registration() {
+        let mut legacy = MockStartup { enabled: true };
+        let mut current = MockStartup::default();
+        migrate_registration(&mut legacy, &mut current).unwrap();
+        assert!(current.enabled);
+        assert!(!legacy.enabled);
+        migrate_registration(&mut legacy, &mut current).unwrap();
+        assert!(current.enabled);
+    }
+
+    #[test]
+    fn failed_new_startup_registration_preserves_the_legacy_entry() {
+        struct FailingStartup;
+        impl StartupProvider for FailingStartup {
+            fn is_enabled(&self) -> Result<bool, String> {
+                Ok(false)
+            }
+            fn set_enabled(&mut self, _: bool) -> Result<(), String> {
+                Err("cannot register".into())
+            }
+        }
+        let mut legacy = MockStartup { enabled: true };
+        assert!(migrate_registration(&mut legacy, &mut FailingStartup).is_err());
+        assert!(legacy.enabled);
+    }
+
+    #[test]
+    fn rename_keeps_startup_disabled_when_it_was_disabled() {
+        let mut legacy = MockStartup::default();
+        let mut current = MockStartup::default();
+        migrate_registration(&mut legacy, &mut current).unwrap();
+        assert!(!legacy.enabled);
+        assert!(!current.enabled);
     }
 
     #[test]

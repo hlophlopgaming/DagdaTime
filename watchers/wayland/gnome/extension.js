@@ -3,7 +3,7 @@ import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-export default class DagdaTimeExtension extends Extension {
+export default class DraugrTimeExtension extends Extension {
     enable() {
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
             const window = global.display.focus_window;

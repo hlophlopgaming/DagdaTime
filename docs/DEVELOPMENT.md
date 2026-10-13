@@ -1,62 +1,58 @@
-# DagdaTime development
+# Draugr Time development
 
-DagdaTime is a local desktop application. One executable contains the window,
-tray, automatic tracking, SQLite and localhost API; no separate service is
-needed. M0–M4 are implemented. Tag editing, rules, reports and browser URL
-collection are later milestones.
+One native Iced executable contains the window, tray, watchers, SQLite storage
+and localhost API. It uses the tiny-skia software renderer.
 
-Install stable Rust and Node 24. Linux needs GTK3, WebKitGTK4.1, Ayatana
-AppIndicator and librsvg development packages. Windows needs MSVC and WebView2;
-macOS needs Xcode command-line tools.
+Install stable Rust. Linux needs GTK 3, Ayatana AppIndicator, librsvg and
+libxkbcommon-x11 development packages. Windows needs MSVC; macOS needs Xcode
+command-line tools.
 
 ```sh
-npm ci --prefix app/frontend
-npm --prefix app/frontend run build
-cargo build --package dagdatime-app
-./target/debug/dagdatime-app
+cargo run --package draugr-time
+cargo build --package draugr-time --release
 ```
 
-Release builds use `cargo build --package dagdatime-app --release`. The resulting
-`target/release/dagdatime-app` (`.exe` on Windows) is the application. It uses the
-system webview. Data lives in the OS local application-data directory under
-DagdaTime. Settings → Data folder selects a different folder for the next launch;
-existing history stays in the old folder. `DAGDATIME_DATA_DIR` overrides it for
-isolated development/testing. Closing hides to the tray; Quit stops tracking.
+The application is `target/release/draugr-time` (`.exe` on Windows). Press
+**Start recording** to show recorded activity. Closing the window keeps the
+tray and tracking; Quit stops the application. Settings can choose another
+data folder for the next launch. Existing history stays in its original folder.
+
+New installations use the OS local-data directory under `DraugrTime`. Existing
+installations continue using a legacy `DagdaTime` folder when the new folder
+does not exist. `DRAUGR_TIME_DATA_DIR` overrides the data folder; the old
+`DAGDATIME_DATA_DIR` variable is also accepted for compatibility.
 
 ```sh
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
-npm --prefix app/frontend test
-npm --prefix app/frontend run test:e2e
 python3 -m unittest discover -s tests
 ```
 
-CI builds and launches the desktop on Windows, macOS and Linux. `--smoke-test`
-checks that the actual frontend mounts. `--runtime-test` also records mock
-activity to a temporary SQLite database within the desktop process. These modes
-exit automatically and never collect real activity.
+CI builds and launches the native desktop on Linux, Windows and macOS.
+`--smoke-test` renders synthetic history, `--runtime-test` records mock samples,
+and `--lifecycle-test` closes and reopens the window while recording continues.
+These diagnostic modes use temporary history and exit automatically. Normal
+launches have no demo mode. `--autostart-test` checks the OS startup provider
+and restores its previous enabled state; run it only in an isolated account.
 
-Manual checks: switch between applications and Unicode window titles, leave
-input idle and resume, pause from window/tray, close and reopen from tray, quit,
-and choose a data folder then restart. On macOS deny/grant DagdaTime Accessibility
-permission and verify errors recover. On Windows check protected applications.
-On Wayland install the appropriate compositor integration and verify window
-changes and idle recovery; see [wayland.md](wayland.md). CI cannot grant real
-desktop permissions or exercise every compositor.
-
-Optional developer diagnostics (not required to run the application):
+Optional watcher diagnostics:
 
 ```sh
-cargo run --package dagdatime-daemon --bin tracker -- debug
+cargo run --package draugr-time-daemon --bin tracker -- debug
 ```
 
-X11 integration tests change the active-window property and must run on an
-isolated display:
+X11 integration tests modify the active-window property. Use an isolated display:
 
 ```sh
-env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package dagdatime-watchers --package dagdatime-daemon -- --ignored --test-threads=1
+env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package draugr-time-watchers --package draugr-time-daemon -- --ignored --test-threads=1
 ```
 
-See [PLAN.md](../PLAN.md) and [decisions.md](decisions.md). Runtime assets are
-embedded; all application network traffic is restricted to localhost. No telemetry.
+Manual checks: switch between applications and Unicode titles, idle and return,
+pause/resume from window and tray, right-click the tray while the window is open,
+close/reopen, Quit, and select a data folder then restart. Verify macOS
+Accessibility permissions, Windows protected processes, and real compositor
+bridges on Wayland. See [wayland.md](wayland.md), [desktop.md](desktop.md),
+[PLAN.md](../PLAN.md), and [decisions.md](decisions.md).
+
+All application network traffic stays on localhost. No telemetry.

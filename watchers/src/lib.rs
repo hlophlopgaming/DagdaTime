@@ -1,4 +1,4 @@
-//! Platform watchers for DagdaTime.
+//! Platform watchers for Draugr Time.
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct WindowInfo {

@@ -1,6 +1,6 @@
 # Wayland setup and manual verification
 
-DagdaTime uses only local compositor sockets and the user's session D-Bus.
+Draugr Time uses only local compositor sockets and the user's session D-Bus.
 Start the daemon (`tracker serve`) or the desktop app before enabling bridges.
 The status API reports missing extensions, stale bridge samples and absent idle
 protocols explicitly; it never invents successful window tracking.
@@ -17,7 +17,7 @@ Disable/uninstall the extension to stop sending samples.
 
 Install `watchers/wayland/kde` with
 `kpackagetool6 --type KWin/Script --install watchers/wayland/kde` and enable
-DagdaTime Watcher in System Settings → Window Management → KWin Scripts.
+Draugr Time Watcher in System Settings → Window Management → KWin Scripts.
 The QML entry point must be `contents/ui/main.qml`. After installation, enable
 without restarting the session:
 
@@ -32,7 +32,7 @@ from the compositor's `ext-idle-notify-v1` protocol, independently of the script
 
 ## Sway / Hyprland
 
-Launch DagdaTime in the same desktop session, preserving `SWAYSOCK` or
+Launch Draugr Time in the same desktop session, preserving `SWAYSOCK` or
 `HYPRLAND_INSTANCE_SIGNATURE` and `XDG_RUNTIME_DIR`. No extension is needed.
 The daemon queries Sway's GET_TREE or Hyprland's JSON activewindow over Unix
 sockets; idle time uses `ext-idle-notify-v1`.

@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dagdatime_watchers::{IdleWatcher, NativeWatcher, WindowWatcher};
+use draugr_time_watchers::{IdleWatcher, NativeWatcher, WindowWatcher};
 
 fn main() {
     if let Err(error) = run() {
@@ -30,7 +30,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if threshold == 0 || threshold > 86_400 {
             return Err("idle threshold must be 1..86400 seconds".into());
         }
-        return dagdatime_daemon::service::serve(threshold);
+        return draugr_time_daemon::service::serve(threshold);
     }
     if arguments != ["debug"] {
         return Err("Usage: tracker debug".into());

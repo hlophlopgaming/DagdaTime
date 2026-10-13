@@ -90,7 +90,7 @@ impl BridgeState {
     }
     pub(crate) fn window(&self) -> Result<Option<WindowInfo>, WatcherError> {
         let guard = self.0.lock().unwrap();
-        let sample = guard.as_ref().filter(|sample| sample.received.elapsed() < Duration::from_secs(3)).ok_or(WatcherError::Unsupported("install/enable the DagdaTime GNOME extension or KWin script; no fresh compositor sample"))?;
+        let sample = guard.as_ref().filter(|sample| sample.received.elapsed() < Duration::from_secs(3)).ok_or(WatcherError::Unsupported("install/enable the Draugr Time GNOME extension or KWin script; no fresh compositor sample"))?;
         Ok(sample.window.clone())
     }
     pub(crate) fn idle(&self) -> Result<u64, WatcherError> {

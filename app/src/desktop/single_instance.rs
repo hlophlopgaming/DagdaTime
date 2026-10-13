@@ -10,7 +10,7 @@ pub(super) struct SingleInstanceLock {
 
 impl SingleInstanceLock {
     pub(super) fn acquire() -> io::Result<Option<Self>> {
-        let directory = dagdatime_daemon::paths::default_dir()?;
+        let directory = draugr_time_daemon::paths::default_dir()?;
         fs::create_dir_all(&directory)?;
         Self::at(&directory.join(".iced-instance.lock"))
     }
@@ -36,7 +36,7 @@ mod tests {
     #[test]
     fn only_one_instance_can_hold_the_lock_until_it_exits() {
         let path = std::env::temp_dir().join(format!(
-            "dagdatime-iced-single-instance-{}.lock",
+            "draugr-time-single-instance-{}.lock",
             std::process::id()
         ));
         let first = super::SingleInstanceLock::at(&path).unwrap().unwrap();

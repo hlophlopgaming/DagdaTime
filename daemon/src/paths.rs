@@ -4,8 +4,18 @@ pub const PORT: u16 = 56123;
 
 pub fn default_dir() -> io::Result<PathBuf> {
     dirs::data_local_dir()
-        .map(|path| path.join("DagdaTime"))
+        .map(|path| application_dir(&path))
         .ok_or_else(|| io::Error::other("cannot find local application data directory"))
+}
+
+fn application_dir(root: &std::path::Path) -> PathBuf {
+    let current = root.join("DraugrTime");
+    let legacy = root.join("DagdaTime");
+    if !current.exists() && legacy.is_dir() {
+        legacy
+    } else {
+        current
+    }
 }
 
 pub fn read_choice(config: &std::path::Path) -> io::Result<Option<PathBuf>> {
@@ -37,7 +47,9 @@ pub fn data_dir() -> io::Result<PathBuf> {
     if let Some(path) = ACTIVE.get() {
         return Ok(path.clone());
     }
-    let path = if let Some(path) = std::env::var_os("DAGDATIME_DATA_DIR") {
+    let path = if let Some(path) =
+        std::env::var_os("DRAUGR_TIME_DATA_DIR").or_else(|| std::env::var_os("DAGDATIME_DATA_DIR"))
+    {
         PathBuf::from(path)
     } else {
         let default = default_dir()?;
@@ -69,6 +81,28 @@ pub fn token(path: &std::path::Path) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn renamed_app_keeps_legacy_history_and_uses_new_directory_for_new_installs() {
+        let root = std::env::temp_dir().join(format!(
+            "draugr-time-rename-{}-{}",
+            std::process::id(),
+            crate::now_ms()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        assert_eq!(application_dir(&root), root.join("DraugrTime"));
+        let legacy = root.join("DagdaTime");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("activity.sqlite"), b"existing history").unwrap();
+        assert_eq!(application_dir(&root), legacy);
+        assert_eq!(
+            fs::read(legacy.join("activity.sqlite")).unwrap(),
+            b"existing history"
+        );
+        fs::create_dir_all(root.join("DraugrTime")).unwrap();
+        assert_eq!(application_dir(&root), root.join("DraugrTime"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn directory_choice_persists_without_moving_history() {
         let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());

@@ -1,11 +1,11 @@
 [package]
-name = "dagdatime-watchers"
+name = "draugr-time-watchers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-dagdatime-core.workspace = true
+draugr-time-core.workspace = true
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

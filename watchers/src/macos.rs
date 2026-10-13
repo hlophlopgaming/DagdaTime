@@ -54,7 +54,7 @@ fn attribute(element: &CFType, name: &str) -> Result<Option<CFType>, WatcherErro
         }
         // kAXErrorAttributeUnsupported and kAXErrorNoValue: no window/title.
         -25205 | -25212 => Ok(None),
-        -25211 => Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to DagdaTime (or the terminal when using the debug CLI) in System Settings")),
+        -25211 => Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to Draugr Time (or the terminal when using the debug CLI) in System Settings")),
         other => Err(WatcherError::Platform(format!("Accessibility attribute returned {other}"))),
     }
 }
@@ -72,7 +72,7 @@ impl WindowWatcher for MacWatcher {
             };
             // SAFETY: AXIsProcessTrusted has no pointer arguments or ownership effects.
             if unsafe { AXIsProcessTrusted() } == 0 {
-                return Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to DagdaTime (or the terminal when using the debug CLI) in System Settings"));
+                return Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to Draugr Time (or the terminal when using the debug CLI) in System Settings"));
             }
             let pid = app.processIdentifier();
             let app_name = app

@@ -1,4 +1,4 @@
-//! Platform-independent storage and tracking logic for DagdaTime.
+//! Platform-independent storage and tracking logic for Draugr Time.
 
 use std::{path::Path, time::Duration};
 

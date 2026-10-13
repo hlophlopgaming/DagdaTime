@@ -1,6 +1,6 @@
 use crate::{now_ms, paths, Shared, Tracker};
-use dagdatime_core::Storage;
-use dagdatime_watchers::{IdleWatcher, NativeWatcher, WatcherError, WindowInfo, WindowWatcher};
+use draugr_time_core::Storage;
+use draugr_time_watchers::{IdleWatcher, NativeWatcher, WatcherError, WindowInfo, WindowWatcher};
 use std::{
     error::Error,
     time::{Duration, Instant},
@@ -30,7 +30,7 @@ pub fn serve(idle_threshold: u64) -> Result<(), Box<dyn Error>> {
     let mut tracker = Tracker::new(shared.clone());
     let mut watcher = NativeWatcher::new();
     let mut last_retry = Instant::now();
-    eprintln!("DagdaTime daemon listening on localhost:{}", paths::PORT);
+    eprintln!("Draugr Time daemon listening on localhost:{}", paths::PORT);
     loop {
         if shared.control.lock().unwrap().shutdown {
             break;

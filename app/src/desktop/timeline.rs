@@ -13,6 +13,14 @@ use std::{
     time::Instant,
 };
 
+fn wheel_zoom_factor(delta: mouse::ScrollDelta) -> f64 {
+    let steps = match delta {
+        mouse::ScrollDelta::Lines { y, .. } => f64::from(y),
+        mouse::ScrollDelta::Pixels { y, .. } => f64::from(y) / 100.0,
+    };
+    0.9_f64.powf(steps.clamp(-10.0, 10.0))
+}
+
 pub const ROW: f32 = 45.0;
 pub const RULER: f32 = 32.0;
 #[derive(Default)]
@@ -182,8 +190,13 @@ impl canvas::Program<Message> for Timeline<'_> {
                     )
                 } else {
                     Some(
-                        canvas::Action::publish(Message::Zoom(if y > 0.0 { 0.8 } else { 1.25 }))
-                            .and_capture(),
+                        canvas::Action::publish(Message::Zoom(
+                            wheel_zoom_factor(*delta),
+                            inside.map(|point| {
+                                model::pixel_range(self.view, bounds.width, point.x, point.x).start
+                            }),
+                        ))
+                        .and_capture(),
                     )
                 }
             }
@@ -379,6 +392,20 @@ pub fn canvas<'a>(program: Timeline<'a>) -> Canvas<Timeline<'a>, Message> {
 mod tests {
     use super::*;
     use iced::widget::canvas::Program;
+
+    #[test]
+    fn wheel_zoom_scales_with_scroll_distance() {
+        let line = wheel_zoom_factor(mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 });
+        let pixel = wheel_zoom_factor(mouse::ScrollDelta::Pixels { x: 0.0, y: 1.0 });
+        assert!((line - 0.9).abs() < 1e-9);
+        assert!(pixel > 0.998 && pixel < 1.0);
+        assert_eq!(
+            wheel_zoom_factor(mouse::ScrollDelta::Lines { x: 0.0, y: 0.0 }),
+            1.0
+        );
+        let reverse = wheel_zoom_factor(mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 });
+        assert!((line * reverse - 1.0).abs() < 1e-9);
+    }
 
     #[test]
     fn application_icons_only_appear_when_the_zoomed_block_can_fit_one() {

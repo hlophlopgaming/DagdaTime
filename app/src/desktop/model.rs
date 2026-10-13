@@ -1,5 +1,5 @@
 use chrono::{Datelike, Local, NaiveDate, TimeZone};
-use dagdatime_core::Event;
+use draugr_time_core::Event;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -148,7 +148,8 @@ pub fn pixel_range(view: Range, width: f32, a: f32, b: f32) -> Range {
 pub fn zoom(day: Range, view: Range, factor: f64, anchor: Option<i64>) -> Range {
     let span = ((view.duration() as f64 * factor).round() as i64).clamp(60_000, day.duration());
     let anchor = anchor.unwrap_or(view.start + view.duration() / 2);
-    let start = (anchor - span / 2).clamp(day.start, day.end - span);
+    let position = (anchor - view.start) as f64 / view.duration().max(1) as f64;
+    let start = (anchor - (span as f64 * position).round() as i64).clamp(day.start, day.end - span);
     Range::new(start, start + span)
 }
 pub fn continuous_span(segment: &Segment, values: &[Segment]) -> Range {
@@ -455,6 +456,15 @@ mod tests {
             ),
             Range::new(21_600_000, 64_800_000)
         );
+    }
+    #[test]
+    fn zoom_keeps_the_anchor_at_the_same_screen_position() {
+        let day = Range::new(0, 86_400_000);
+        let view = Range::new(10_000_000, 20_000_000);
+        let anchor = 12_000_000;
+        let zoomed = zoom(day, view, 0.9, Some(anchor));
+        assert_eq!(zoomed, Range::new(10_200_000, 19_200_000));
+        assert_eq!(zoom(day, zoomed, 1.0 / 0.9, Some(anchor)), view);
     }
     #[test]
     fn fixture_contains_5000_windows_four_tracks_and_correct_totals() {

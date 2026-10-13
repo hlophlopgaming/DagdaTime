@@ -1,4 +1,4 @@
-//! Native Iced experiment: M4 functionality and resource-use comparison.
+//! Native Draugr Time desktop.
 mod appearance;
 mod model;
 mod runtime;
@@ -67,7 +67,7 @@ pub enum Message {
     Select(Option<Range>),
     Hover(Option<(usize, usize)>),
     Highlight(String),
-    Zoom(f64),
+    Zoom(f64, Option<i64>),
     Fit,
     Pan(f64),
     PanBy(f64),
@@ -84,7 +84,6 @@ pub enum Message {
     RefreshSystemTheme,
     Start,
     AutoStart(bool),
-    Demo,
     Pause(Option<i64>),
     Resume,
     Quit,
@@ -118,7 +117,7 @@ struct State {
     rows: Vec<Summary>,
     limit: usize,
     metrics: [i64; 4],
-    demo: bool,
+    fixture: bool,
     tracks_menu: bool,
     theme: Theme,
     theme_preference: appearance::Preference,
@@ -157,20 +156,20 @@ impl State {
     fn boot() -> (Self, Task<Message>) {
         let args: Vec<_> = std::env::args().collect();
         let launch = startup::LaunchOptions::parse(args.iter().map(String::as_str));
-        let smoke = cfg!(test) || args.iter().any(|arg| arg == "--smoke-test");
+        let smoke = args.iter().any(|arg| arg == "--smoke-test");
         let lifecycle = args.iter().any(|arg| arg == "--lifecycle-test");
         let runtime_test = lifecycle || args.iter().any(|arg| arg == "--runtime-test");
         let benchmark = args.iter().any(|arg| arg == "--benchmark");
         let date = Local::now().date_naive();
         let day = model::day_bounds(date);
         let stats = Arc::new(timeline::PaintStats::default());
-        let preview_apps = if cfg!(test) {
+        let preview_apps = if cfg!(test) || !(smoke || benchmark) {
             Vec::new()
         } else {
             crate::icons::preview_application_processes()
         };
         let icons = decode_icons(crate::icons::application_icons(preview_apps.clone()));
-        let tray = if smoke || (runtime_test && !lifecycle) {
+        let tray = if cfg!(test) || smoke || (runtime_test && !lifecycle) {
             None
         } else {
             match tray::Tray::new() {
@@ -186,7 +185,11 @@ impl State {
             date_text: date.to_string(),
             day,
             view: day,
-            all: model::fixture_with_apps(day, &preview_apps),
+            all: if smoke || benchmark {
+                model::fixture_with_apps(day, &preview_apps)
+            } else {
+                model::empty_tracks()
+            },
             filtered: Vec::new(),
             order: vec![0, 1, 2, 3],
             visible: vec![0, 1, 2, 3],
@@ -200,7 +203,7 @@ impl State {
             rows: Vec::new(),
             limit: 50,
             metrics: [0; 4],
-            demo: true,
+            fixture: smoke || benchmark,
             tracks_menu: false,
             theme: native_theme(false),
             theme_preference: appearance::Preference::System,
@@ -274,7 +277,7 @@ impl State {
     }
     fn start(&mut self) {
         if self.runtime.is_some() {
-            self.demo = false;
+            self.fixture = false;
             self.all = model::empty_tracks();
             self.invalidate_load();
             self.rebuild();
@@ -283,7 +286,7 @@ impl State {
         match Runtime::start(self.runtime_test) {
             Ok(runtime) => {
                 self.runtime = Some(runtime);
-                self.demo = false;
+                self.fixture = false;
                 self.all = model::empty_tracks();
                 self.error.clear();
                 self.invalidate_load();
@@ -361,7 +364,7 @@ impl State {
         self.selection = None;
         self.highlight = None;
         self.limit = 50;
-        if self.demo {
+        if self.fixture {
             self.all = model::fixture_with_apps(self.day, &self.preview_apps);
         } else {
             self.all = model::empty_tracks();
@@ -420,11 +423,12 @@ impl State {
                 if self.last_sample.elapsed() >= Duration::from_secs(1) {
                     self.last_sample = Instant::now();
                     if let Some(runtime) = self.runtime.as_mut() {
+                        #[cfg(not(target_os = "linux"))]
                         runtime.pulse();
                         self.status = runtime.status();
                     }
                     if let Some(tray) = self.tray.as_ref() {
-                        tray.update(&self.status, self.metrics[0], self.demo);
+                        tray.update(&self.status, self.metrics[0], self.fixture);
                     }
                 }
                 let painted = self.stats.frames.load(Ordering::Relaxed) > 0;
@@ -512,12 +516,15 @@ impl State {
                     );
                     return iced::exit();
                 }
-                let now = dagdatime_daemon::now_ms();
+                let now = draugr_time_daemon::now_ms();
                 let today = self.day.start <= now && now < self.day.end;
                 // Only today's history still changes; a past day is loaded once.
                 let stale = self.loaded_day != Some(self.day)
                     || (today && self.last_load.elapsed() > Duration::from_secs(2));
-                if !self.demo && !self.loading && stale && (self.window.is_some() || self.lifecycle)
+                if !self.fixture
+                    && !self.loading
+                    && stale
+                    && (self.window.is_some() || self.lifecycle)
                 {
                     if let Some(runtime) = self.runtime.as_ref() {
                         let shared = runtime.shared.clone();
@@ -539,7 +546,7 @@ impl State {
             }
             Message::Loaded(generation, result) => {
                 if generation != self.load_generation {
-                    // Started before a date, demo or recording change; not for this view.
+                    // Started before a date or recording change; not for this view.
                     return Task::none();
                 }
                 self.loading = false;
@@ -616,8 +623,8 @@ impl State {
                 };
                 self.cache.clear();
             }
-            Message::Zoom(factor) => {
-                let anchor = self.selection.map(|s| s.start + s.duration() / 2);
+            Message::Zoom(factor, anchor) => {
+                let anchor = anchor.or_else(|| self.selection.map(|s| s.start + s.duration() / 2));
                 self.view = model::zoom(self.day, self.view, factor, anchor);
                 self.hover = None;
                 self.cache.clear();
@@ -699,21 +706,6 @@ impl State {
                 }
                 Err(error) => self.autostart_error = error,
             },
-            Message::Demo => {
-                self.demo = !self.demo;
-                if self.demo {
-                    self.invalidate_load();
-                    self.all = model::fixture_with_apps(self.day, &self.preview_apps);
-                } else if self.runtime.is_some() {
-                    self.all = model::empty_tracks();
-                    self.invalidate_load();
-                } else {
-                    self.demo = true;
-                    self.error = "Start recording to load your local history.".into();
-                }
-                self.selection = None;
-                self.rebuild();
-            }
             Message::Pause(duration) => {
                 if let Some(runtime) = self.runtime.as_ref() {
                     if let Err(error) = runtime.pause(duration) {
@@ -742,8 +734,11 @@ impl State {
             }
             Message::FolderChosen(folder) => {
                 if let Some(folder) = folder {
-                    let result = dagdatime_daemon::paths::default_dir().and_then(|dir| {
-                        dagdatime_daemon::paths::save_choice(&dir.join("preferences.json"), &folder)
+                    let result = draugr_time_daemon::paths::default_dir().and_then(|dir| {
+                        draugr_time_daemon::paths::save_choice(
+                            &dir.join("preferences.json"),
+                            &folder,
+                        )
                     });
                     match result {
                         Ok(()) => self.pending_dir = Some(folder.to_string_lossy().into_owned()),
@@ -769,8 +764,8 @@ impl State {
                     }
                     keyboard::Key::Character(c) => match c.as_str() {
                         "t" | "T" => Some(Message::Today),
-                        "+" | "=" => Some(Message::Zoom(0.5)),
-                        "-" => Some(Message::Zoom(2.0)),
+                        "+" | "=" => Some(Message::Zoom(0.9, None)),
+                        "-" => Some(Message::Zoom(1.0 / 0.9, None)),
                         _ => None,
                     },
                     _ => None,
@@ -780,7 +775,7 @@ impl State {
                 }
             }
             Message::Screenshot(screenshot) => {
-                if let Some(path) = std::env::var_os("DAGDATIME_ICED_SCREENSHOT") {
+                if let Some(path) = std::env::var_os("DRAUGR_TIME_SCREENSHOT") {
                     let result = (|| -> Result<(), String> {
                         let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
                         let mut encoder =
@@ -809,7 +804,7 @@ impl State {
             Some("away") => "● Away",
             Some("error") => "● Needs attention",
             Some("starting") => "● Starting",
-            _ => "○ Preview",
+            _ => "○ Not recording",
         }
     }
     fn app_icon<'a>(&'a self, app: &'a str, app_name: &'a str) -> Element<'a, Message> {
@@ -863,23 +858,23 @@ impl State {
                 .style(panel),
             );
         }
-        let mode = if self.demo {
+        let mode = if self.fixture {
             "Preview · 5,000 generated events · sample data is never saved"
         } else {
-            "Live data · local SQLite · process identity"
+            "Recorded activity"
         };
         let heading = row![
             text("Activity timeline").size(15),
             space::horizontal(),
             button("Tracks").on_press(Message::Tracks),
-            button("−").on_press(Message::Zoom(2.0)),
+            button("−").on_press(Message::Zoom(1.0 / 0.9, None)),
             text(if self.view == self.day {
                 "Full day".into()
             } else {
                 model::duration(self.view.duration())
             })
             .size(12),
-            button("+").on_press(Message::Zoom(0.5)),
+            button("+").on_press(Message::Zoom(0.9, None)),
             button("Fit day").on_press(Message::Fit)
         ]
         .spacing(8)
@@ -1078,9 +1073,11 @@ impl State {
                 }
             }
         } else {
-            backend=backend.push(text("Preview mode: no activity is being recorded. Press Start recording to test the embedded collector."));
+            backend = backend.push(text(
+                "Tracking is stopped. Press Start recording to collect activity.",
+            ));
         }
-        let directory = dagdatime_daemon::paths::data_dir()
+        let directory = draugr_time_daemon::paths::data_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|e| e.to_string());
         let folder = column![
@@ -1094,7 +1091,7 @@ impl State {
                         "Next launch: {path}. Existing history stays in the old folder."
                     ))
                     .unwrap_or_else(|| {
-                        "The folder change takes effect after restarting DagdaTime.".into()
+                        "The folder change takes effect after restarting Draugr Time.".into()
                     })
             )
             .size(12)
@@ -1102,7 +1099,7 @@ impl State {
         .spacing(12);
         let autostart = column![
             checkbox(self.autostart_enabled)
-                .label("Start DagdaTime when I log in")
+                .label("Start Draugr Time when I log in")
                 .on_toggle(Message::AutoStart),
             text("Starts activity tracking in the tray. Turn this off here to remove it from system startup.")
                 .size(12),
@@ -1111,7 +1108,7 @@ impl State {
                 .color(Color::from_rgb8(200, 75, 75))
         ]
         .spacing(8);
-        let resource=column![text("Iced experiment").size(22),text("Rust UI · tiny-skia software renderer · no WebKit").size(14),text(format!("Canvas draws: {} · max geometry build: {:.2} ms",self.stats.frames.load(Ordering::Relaxed),self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0)).size(13),text("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Switching themes, tray behavior and OS permissions need desktop verification before promoting this branch.").size(13)].spacing(12);
+        let resource=column![text("Draugr Time").size(22),text("Native Rust UI · tiny-skia software renderer").size(14),text(format!("Canvas draws: {} · max geometry build: {:.2} ms",self.stats.frames.load(Ordering::Relaxed),self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0)).size(13),text("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Themes, tray behavior and OS permissions need verification on each platform.").size(13)].spacing(12);
         scrollable(
             column![
                 container(backend).padding(16).style(panel),
@@ -1125,8 +1122,8 @@ impl State {
     }
     fn view(&self, _id: window::Id) -> Element<'_, Message> {
         let mut navigation = column![
-            text("◷ DagdaTime").size(23),
-            text("ICED EXPERIMENT").size(10),
+            text("◷ Draugr Time").size(23),
+            text("LOCAL ACTIVITY TRACKER").size(10),
             space::vertical().height(14)
         ]
         .spacing(8);
@@ -1197,7 +1194,6 @@ impl State {
             space::horizontal(),
             text(self.status_label()).size(13),
             control,
-            button(if self.demo { "Live data" } else { "View demo" }).on_press(Message::Demo),
             button(text(format!("Theme: {}", self.theme_preference.label())))
                 .on_press(Message::Theme),
             button("Quit").on_press(Message::Quit)
@@ -1209,7 +1205,16 @@ impl State {
         } else if self.screen == "Settings" {
             self.settings()
         } else {
-            container(column![text(format!("{} is coming in a later milestone",self.screen)).size(22),text("This branch compares the Iced Day view with the existing Tauri implementation."),button("Back to day").on_press(Message::Screen("Day"))].spacing(14)).padding(24).into()
+            container(
+                column![
+                    text(format!("{} is coming in a later milestone", self.screen)).size(22),
+                    text("This view will be available in a later milestone."),
+                    button("Back to day").on_press(Message::Screen("Day"))
+                ]
+                .spacing(14),
+            )
+            .padding(24)
+            .into()
         };
         let mut main = column![toolbar, heading].spacing(10);
         if !self.error.is_empty() {
@@ -1238,7 +1243,7 @@ impl State {
             .push(row![
                 text(self.status_label()).size(11),
                 space::horizontal(),
-                text("DagdaTime · native Iced prototype · tiny-skia").size(11)
+                text("Draugr Time · Local & private").size(11)
             ])
             .height(Length::Fill);
         row![sidebar, container(main).padding(16).height(Length::Fill)]
@@ -1249,7 +1254,7 @@ impl State {
 
 fn native_theme(dark: bool) -> Theme {
     Theme::custom(
-        "DagdaTime",
+        "Draugr Time",
         iced::theme::Palette {
             background: if dark {
                 Color::from_rgb8(14, 25, 35)
@@ -1304,10 +1309,11 @@ pub fn run() -> iced::Result {
         ]
         .contains(&arg.as_str())
     });
-    if is_test && std::env::var_os("DAGDATIME_DATA_DIR").is_none() {
+    if is_test && std::env::var_os("DRAUGR_TIME_DATA_DIR").is_none() {
         // Test modes record fixture activity; never write it into the user's history.
-        let directory = std::env::temp_dir().join(format!("dagdatime-test-{}", std::process::id()));
-        std::env::set_var("DAGDATIME_DATA_DIR", directory);
+        let directory =
+            std::env::temp_dir().join(format!("draugr-time-test-{}", std::process::id()));
+        std::env::set_var("DRAUGR_TIME_DATA_DIR", directory);
     }
     if autostart_test {
         let result = startup::SystemStartup::new().and_then(|mut provider| {
@@ -1339,21 +1345,24 @@ pub fn run() -> iced::Result {
     let _instance_lock = match single_instance::SingleInstanceLock::acquire() {
         Ok(Some(lock)) => lock,
         Ok(None) => {
-            eprintln!("DagdaTime is already running.");
+            eprintln!("Draugr Time is already running.");
             return Ok(());
         }
         Err(error) => {
-            eprintln!("Cannot check whether DagdaTime is already running: {error}");
+            eprintln!("Cannot check whether Draugr Time is already running: {error}");
             std::process::exit(1);
         }
     };
-    #[cfg(target_os = "linux")]
-    if let Err(error) = gtk::init() {
-        eprintln!("GTK tray initialization: {error}");
+    if !is_test && !args.iter().any(|arg| arg == "--benchmark") {
+        if let Err(error) =
+            startup::SystemStartup::new().and_then(|mut startup| startup.migrate_legacy())
+        {
+            eprintln!("Startup registration migration failed: {error}");
+        }
     }
 
     let result = iced::daemon(State::boot, State::update, State::view)
-        .title(|_: &State, _| "DagdaTime · Iced prototype".to_string())
+        .title(|_: &State, _| "Draugr Time".to_string())
         .subscription(State::subscription)
         .theme(|state: &State, _| state.theme.clone())
         .run();
@@ -1369,9 +1378,18 @@ mod load_tests {
     use super::*;
 
     #[test]
+    fn normal_launch_starts_with_no_generated_activity() {
+        let (state, _) = State::boot();
+        assert!(
+            state.all.iter().all(|track| track.segments.is_empty()),
+            "normal launches must not show synthetic demo history"
+        );
+    }
+
+    #[test]
     fn stale_load_cannot_replace_a_different_day_or_finish_its_load() {
         let (mut state, _) = State::boot();
-        state.demo = false;
+        state.fixture = false;
         state.invalidate_load();
         let old_generation = state.load_generation;
         let old_tracks = state.all.clone();
@@ -1393,11 +1411,13 @@ mod load_tests {
     }
 
     #[test]
-    fn stale_live_load_cannot_replace_demo_data() {
+    fn stale_live_load_cannot_replace_smoke_fixture() {
         let (mut state, _) = State::boot();
-        state.demo = false;
+        state.fixture = false;
         let old_generation = state.load_generation;
-        let _ = state.update(Message::Demo);
+        state.fixture = true;
+        state.all = model::fixture_with_apps(state.day, &state.preview_apps);
+        state.invalidate_load();
         let preview = state.all.clone();
         let _ = state.update(Message::Loaded(
             old_generation,
@@ -1406,7 +1426,7 @@ mod load_tests {
                 icons: HashMap::new(),
             }),
         ));
-        assert!(state.demo);
+        assert!(state.fixture);
         assert!(
             state.all == preview,
             "a stale live result must not replace the preview"
@@ -1417,7 +1437,7 @@ mod load_tests {
     #[test]
     fn current_load_updates_history_and_finishes_loading() {
         let (mut state, _) = State::boot();
-        state.demo = false;
+        state.fixture = false;
         state.loading = true;
         let _ = state.update(Message::Loaded(
             state.load_generation,

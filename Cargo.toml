@@ -8,5 +8,5 @@ edition = "2021"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-dagdatime-core = { path = "core" }
-dagdatime-watchers = { path = "watchers" }
+draugr-time-core = { path = "core" }
+draugr-time-watchers = { path = "watchers" }

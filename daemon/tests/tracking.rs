@@ -1,6 +1,6 @@
-use dagdatime_core::Storage;
-use dagdatime_daemon::{Shared, Tracker};
-use dagdatime_watchers::{MockWatcher, WatcherError, WindowInfo};
+use draugr_time_core::Storage;
+use draugr_time_daemon::{Shared, Tracker};
+use draugr_time_watchers::{MockWatcher, WatcherError, WindowInfo};
 
 fn window(app: &str) -> WindowInfo {
     WindowInfo {

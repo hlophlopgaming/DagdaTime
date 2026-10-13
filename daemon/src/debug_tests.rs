@@ -1,5 +1,5 @@
 use super::*;
-use dagdatime_watchers::{MockWatcher, WatcherError, WindowInfo};
+use draugr_time_watchers::{MockWatcher, WatcherError, WindowInfo};
 
 #[test]
 fn debug_output_contains_window_and_idle_in_one_json_line() {

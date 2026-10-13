@@ -2,8 +2,8 @@ pub mod api;
 pub mod paths;
 pub mod service;
 
-use dagdatime_core::{Storage, StorageError};
-use dagdatime_watchers::{IdleWatcher, WatcherError, WindowInfo, WindowWatcher};
+use draugr_time_core::{Storage, StorageError};
+use draugr_time_watchers::{IdleWatcher, WatcherError, WindowInfo, WindowWatcher};
 use serde::Serialize;
 use serde_json::json;
 use std::sync::{Arc, Mutex};

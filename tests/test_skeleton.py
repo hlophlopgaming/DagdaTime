@@ -15,22 +15,27 @@ class SkeletonTests(unittest.TestCase):
         for member in manifest["workspace"]["members"]:
             self.assertTrue((ROOT / member / "Cargo.toml").is_file())
 
-    def test_tauri_has_one_local_window(self):
-        config = json.loads((ROOT / "app/tauri.conf.json").read_text())
-        self.assertEqual(len(config["app"]["windows"]), 1)
-        self.assertEqual(config["app"]["windows"][0]["title"], "DagdaTime")
-        frontend = ROOT / "app" / config["build"]["frontendDist"]
-        self.assertTrue((frontend / "index.html").is_file())
-        self.assertIn("default-src 'self'", config["app"]["security"]["csp"])
-        for icon in config["bundle"]["icon"]:
-            self.assertTrue((ROOT / "app" / icon).is_file())
+    def test_desktop_is_a_single_native_draugr_time_binary(self):
+        manifest = tomllib.loads((ROOT / 'app/Cargo.toml').read_text())
+        self.assertEqual(manifest['package']['name'], 'draugr-time')
+        self.assertIn('iced', manifest['dependencies'])
+        self.assertNotIn('tauri', manifest['dependencies'])
+        self.assertFalse((ROOT / 'app/tauri.conf.json').exists())
+        self.assertFalse((ROOT / 'app/frontend').exists())
+        self.assertFalse((ROOT / 'app/build.rs').exists())
+        lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
+        self.assertFalse(any(package['name'].startswith(('tauri', 'wry', 'webkit')) for package in lock['package']))
+        main = (ROOT / 'app/src/main.rs').read_text()
+        self.assertIn('desktop::run()', main)
 
     def test_ci_checks_and_builds_on_three_platforms(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         for required in ("ubuntu-22.04", "windows-latest", "macos-latest",
                          "cargo fmt --check", "cargo clippy --all-targets -- -D warnings",
-                         "cargo test", "cargo build --package dagdatime-app --release"):
+                         "cargo test", "cargo build --package draugr-time --release"):
             self.assertIn(required, workflow)
+        for removed in ("npm ", "WebKit", "dagdatime-app", "dagdatime-iced"):
+            self.assertNotIn(removed, workflow)
 
 class WaylandPackageTests(unittest.TestCase):
     def test_kde_declarative_entrypoint_uses_required_ui_directory(self):

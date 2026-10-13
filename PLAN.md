@@ -1,6 +1,6 @@
 # PLAN.md — Open-source, cross-platform ManicTime alternative
 
-> Working name: DagdaTime (do **not** use "ManicTime" in the name — it is a trademark).
+> Working name: Draugr Time (do **not** use "ManicTime" in the name — it is a trademark).
 
 ## 0. Positioning
 
@@ -34,7 +34,7 @@ Screenshots, multi-device sync, server edition, mobile clients.
 | Layer | Choice | Reason |
 |---|---|---|
 | Core / daemon | **Rust** | Single binary per OS, low overhead, good OS bindings |
-| GUI | **Tauri 2** + Svelte (or React) | Cross-platform, small footprint, web UI suits a timeline |
+| GUI | **Iced** (Rust, tiny-skia) | Native cross-platform UI and canvas, no webview |
 | Storage | **SQLite** (rusqlite or sqlx) | Local, single file, easy backups |
 | Timeline | Canvas/SVG (vis-timeline or custom d3) | Needs zoom and range selection |
 | CI | GitHub Actions, matrix windows/macos/ubuntu | Agent can verify builds on all OSes |
@@ -44,7 +44,7 @@ Screenshots, multi-device sync, server edition, mobile clients.
 
 ## 3. Architecture
 
-One desktop executable contains the Tauri window, native watchers, background
+One desktop executable contains the Iced window, native watchers, background
 tracking, SQLite storage and the localhost API. No separate daemon executable
 is required. Closing the window hides it to the tray and keeps tracking; Quit
 stops the entire application. The CLI is an optional developer diagnostic.
@@ -200,7 +200,7 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 
 **10. System tray / menu bar**
 - Icon shows state: tracking / paused / away / error.
-- Menu: open DagdaTime, current activity, today's active time, **tag the last N minutes** (quick tag), Pause 15 min / 1 h / until resumed, Settings, Quit.
+- Menu: open Draugr Time, current activity, today's active time, **tag the last N minutes** (quick tag), Pause 15 min / 1 h / until resumed, Settings, Quit.
 - Closing the main window keeps tracking in the background.
 
 ### Empty and error states (required on every screen)
@@ -209,10 +209,10 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 - Backend unsupported or permission missing → banner linking to Settings → Status & permissions.
 
 ### UI tech decisions (to be recorded in `docs/decisions.md` in M3.5)
-- Framework: Svelte (or React) + TypeScript, bundled into the Tauri app; no remote assets.
-- Timeline rendered on **canvas** for performance (a day can contain thousands of events); DOM for everything else.
-- UI talks to the daemon through the local API from M3 (or Tauri commands proxying it). The UI never touches SQLite directly.
-- Component tests for the summary math and selection logic; screenshot/E2E tests for the Day view on fixture data.
+- Framework: Iced in Rust with the tiny-skia renderer; no remote assets.
+- Timeline rendered on the native Iced **canvas**; native controls for everything else.
+- UI uses in-process tracking commands and snapshots from the runtime. The UI never issues SQL directly; the localhost API remains available for local integrations.
+- Rust tests for summary math and selection; native smoke/runtime/lifecycle checks with isolated fixture data.
 
 ---
 
@@ -221,9 +221,9 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 Each milestone = one focused AI session. Do not start the next until the acceptance criteria pass.
 
 ### M0 — Skeleton
-- Cargo workspace: `core`, `watchers`, `daemon`, `app` (Tauri).
+- Cargo workspace: `core`, `watchers`, `daemon`, `app` (Iced).
 - CI matrix on 3 OSes: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`.
-- ✅ Empty Tauri window builds in CI on Windows, macOS and Linux.
+- ✅ Empty Iced window builds in CI on Windows, macOS and Linux.
 
 ### M1 — Storage & heartbeat logic
 - SQLite schema + migrations; `heartbeat(bucket, data, ts, pulsetime)`.
@@ -241,7 +241,7 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 - ✅ Wayland graceful fallback: if no backend is available, `/status` reports it and the UI (M3.5) clearly says so instead of silently recording nothing.
 
 ### M3.5 — App shell
-- Pick the UI framework and set up the frontend build (see §5 "UI tech decisions"); record the choice in `docs/decisions.md`.
+- Use Iced and the Rust desktop build (see §5 "UI tech decisions"); record architecture decisions in `docs/decisions.md`.
 - Main window with sidebar navigation (Day, Week, Reports, Tags, Rules, Settings) and placeholder screens.
 - Toolbar with date navigation and the tracking status pill; Pause / Resume.
 - **Tray / menu bar icon** with state and the menu from §5.10 (quick tag may be disabled until M5). Closing the window keeps tracking.

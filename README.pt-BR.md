@@ -1,18 +1,18 @@
 <div align="center">
 
-# DagdaTime
+# Draugr Time
 
 ### Alternativa de código aberto e multiplataforma ao ManicTime
 
 **Controle de tempo automático que fica no seu computador.**<br>
 Veja em uma linha do tempo para onde foi o seu dia, atribua tempo a projetos e tenha relatórios honestos. Gratuito e privado.
 
-[![CI](https://github.com/hlophlopgaming/DagdaTime/actions/workflows/ci.yml/badge.svg)](https://github.com/hlophlopgaming/DagdaTime/actions/workflows/ci.yml)
+[![CI](https://github.com/hlophlopgaming/DraugrTime/actions/workflows/ci.yml/badge.svg)](https://github.com/hlophlopgaming/DraugrTime/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational)
-![Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-orange)
+![Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20Iced-orange)
 ![No telemetry](https://img.shields.io/badge/telemetry-none-success)
-[![GitHub stars](https://img.shields.io/github/stars/hlophlopgaming/DagdaTime?style=social)](https://github.com/hlophlopgaming/DagdaTime/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/hlophlopgaming/DraugrTime?style=social)](https://github.com/hlophlopgaming/DraugrTime/stargazers)
 
 [English](README.md) · [Русский](README.ru.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · **Português** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
@@ -21,14 +21,14 @@ Veja em uma linha do tempo para onde foi o seu dia, atribua tempo a projetos e t
 ---
 
 > [!IMPORTANT]
-> **O DagdaTime está no início do desenvolvimento.** O rastreamento da janela ativa e do tempo ocioso já funciona no Windows, macOS e Linux (X11). A linha do tempo, as tags e os relatórios são os próximos passos do [roadmap](#roadmap).
+> **O Draugr Time está no início do desenvolvimento.** O rastreamento e a linha do tempo diária já funcionam com a interface nativa Iced. A edição de tags, as regras e os relatórios estão planejados; veja o [roadmap](#roadmap).
 > ⭐ Dê uma **estrela** ou ative o 👀 **Watch** para acompanhar o progresso e saber do primeiro lançamento.
 
-## Por que o DagdaTime?
+## Por que o Draugr Time?
 
 Você abre o notebook às 9h e, de repente, já são 18h. Para onde foi o dia?
 
-O **ManicTime** responde bem a essa pergunta, mas tem código fechado e os recursos mais úteis exigem uma licença paga. O **DagdaTime** quer ser o mesmo tipo de ferramenta, desenvolvida de forma aberta:
+O **ManicTime** responde bem a essa pergunta, mas tem código fechado e os recursos mais úteis exigem uma licença paga. O **Draugr Time** quer ser o mesmo tipo de ferramenta, desenvolvida de forma aberta:
 
 - 🕒 **Rastreamento automático.** Registra o aplicativo ativo, o título da janela e se você estava no computador. Sem cronômetros para iniciar ou esquecer.
 - 📊 **Linha do tempo.** O seu dia inteiro em trilhas paralelas: uso do computador, aplicativos, documentos e sites, tags.
@@ -37,9 +37,9 @@ O **ManicTime** responde bem a essa pergunta, mas tem código fechado e os recur
 - 💻 **Multiplataforma de verdade.** Windows, macOS e Linux a partir de uma única base de código em Rust, com suporte nativo a **Wayland** (GNOME, KDE, Sway/Hyprland), não apenas XWayland.
 - 🆓 **Gratuito para sempre.** GPL-3.0. Sem versão "Pro".
 
-## DagdaTime, ManicTime e ActivityWatch
+## Draugr Time, ManicTime e ActivityWatch
 
-|  | **DagdaTime** | ManicTime | ActivityWatch |
+|  | **Draugr Time** | ManicTime | ActivityWatch |
 |---|---|---|---|
 | Código aberto | ✅ GPL-3.0 | ❌ Proprietário | ✅ MPL-2.0 |
 | Preço | ✅ Gratuito | Edição gratuita, Pro paga | ✅ Gratuito |
@@ -49,11 +49,11 @@ O **ManicTime** responde bem a essa pergunta, mas tem código fechado e os recur
 | Backends nativos para Wayland | ✅ GNOME/KDE/wlroots | — | Limitado |
 | Importação do ActivityWatch | 🚧 Planejado (M7) | ❌ | — |
 
-O formato de eventos do DagdaTime é compatível com o ActivityWatch, então você poderá trazer o seu histórico.
+O formato de eventos do Draugr Time é compatível com o ActivityWatch, então você poderá trazer o seu histórico.
 
 ## Roadmap
 
-- [x] **M0** Workspace Rust, aplicativo desktop com Tauri 2, CI no Windows / macOS / Linux
+- [x] **M0** Workspace Rust, aplicativo desktop com Iced, CI no Windows / macOS / Linux
 - [x] **M1** Armazenamento SQLite com migrações e mesclagem de eventos heartbeat
 - [x] **M2** Watchers nativos: janela ativa e tempo ocioso no Windows, macOS, Linux X11
 - [x] **M3** Serviço em segundo plano, API local, detecção de ausência (AFK), Wayland (GNOME, KDE, wlroots)
@@ -63,7 +63,7 @@ O formato de eventos do DagdaTime é compatível com o ActivityWatch, então voc
 - [ ] **M6** Regras de marcação automática
 - [ ] **M7** Relatórios, exportação CSV/JSON, importação do ActivityWatch
 - [ ] **M9** Extensão de navegador para URLs (Firefox, Chromium)
-- [ ] **M10** Ícone na bandeja, inicialização automática, configurações de privacidade, instaladores (MSI, DMG, AppImage/Flatpak)
+- [ ] **M10** Primeiro uso, privacidade, backups e instaladores (MSI, DMG, AppImage/Flatpak)
 - [ ] **Depois** Capturas de tela, criptografia do banco de dados, sincronização entre dispositivos
 
 Detalhes: [PLAN.md](PLAN.md) · Decisões de arquitetura: [docs/decisions.md](docs/decisions.md)
@@ -73,11 +73,9 @@ Detalhes: [PLAN.md](PLAN.md) · Decisões de arquitetura: [docs/decisions.md](do
 Ainda não há instaladores. Você pode compilar a partir do código-fonte e rodar a ferramenta de depuração, que mostra a cada segundo a janela ativa e o tempo ocioso:
 
 ```sh
-git clone https://github.com/hlophlopgaming/DagdaTime.git
-cd DagdaTime
-npm ci --prefix app/frontend
-npm --prefix app/frontend run build
-cargo run --package dagdatime-app
+git clone https://github.com/hlophlopgaming/DraugrTime.git draugr-time
+cd draugr-time
+cargo run --package draugr-time
 ```
 
 Requisitos de compilação e notas por plataforma: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (em inglês).
@@ -87,7 +85,7 @@ Requisitos de compilação e notas por plataforma: [docs/DEVELOPMENT.md](docs/DE
 Um rastreador de tempo vê tudo o que você faz, então aqui não há concessões:
 
 - Todos os dados são armazenados localmente em um único arquivo SQLite que pertence a você.
-- O DagdaTime **não faz chamadas de rede externas** e **não tem telemetria**.
+- O Draugr Time **não faz chamadas de rede externas** e **não tem telemetria**.
 - Planejado: excluir aplicativos, ocultar títulos de janelas, criptografia opcional do banco de dados.
 
 ## Perguntas frequentes
@@ -95,7 +93,7 @@ Um rastreador de tempo vê tudo o que você faz, então aqui não há concessõe
 <details>
 <summary><b>Existe uma alternativa gratuita e de código aberto ao ManicTime?</b></summary>
 
-É exatamente isso que o DagdaTime quer ser: rastreamento automático, linha do tempo e marcação de tempo, gratuito e sob licença GPL, no Windows, macOS e Linux.
+É exatamente isso que o Draugr Time quer ser: rastreamento automático, linha do tempo e marcação de tempo, gratuito e sob licença GPL, no Windows, macOS e Linux.
 </details>
 
 <details>
@@ -132,10 +130,10 @@ Contribuições são bem-vindas, especialmente de quem conhece:
 
 Abra uma issue para discutir uma ideia ou escolha um marco do [PLAN.md](PLAN.md). O projeto é desenvolvido com agentes de programação com IA; as regras de trabalho deles estão em [AGENTS.md](AGENTS.md).
 
-Se o DagdaTime parece útil para você, **uma estrela ajuda outras pessoas a encontrá-lo.** ⭐
+Se o Draugr Time parece útil para você, **uma estrela ajuda outras pessoas a encontrá-lo.** ⭐
 
 ## Licença
 
 [GPL-3.0](LICENSE)
 
-<sub>ManicTime, RescueTime, Timing e WakaTime são marcas de seus respectivos proprietários. O DagdaTime é um projeto independente e não tem vínculo com eles.</sub>
+<sub>ManicTime, RescueTime, Timing e WakaTime são marcas de seus respectivos proprietários. O Draugr Time é um projeto independente e não tem vínculo com eles.</sub>
