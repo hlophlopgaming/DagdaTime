@@ -101,7 +101,7 @@ Um rastreador de tempo vê tudo o que você faz, então aqui não há concessõe
 <details>
 <summary><b>Funciona no Linux e no Wayland?</b></summary>
 
-Sim, o Linux é uma plataforma de primeira classe. O X11 já funciona. Backends nativos de Wayland para GNOME, KDE e compositores wlroots (Sway, Hyprland) estão planejados para o M3.
+Sim, o Linux é uma plataforma de primeira classe. O X11 já funciona. Os backends Wayland para GNOME, KDE, Sway e Hyprland estão implementados. GNOME/KDE exigem integração local; veja [Wayland](docs/wayland.md). A verificação manual continua necessária.
 </details>
 
 <details>

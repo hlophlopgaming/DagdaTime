@@ -37,3 +37,19 @@ test('keyboard zoom, search and track visibility work',async({page})=>{
   await page.getByLabel('Show Documents').uncheck();
   await expect(page.getByTestId('track-Documents')).toHaveCount(0);
 });
+
+test('block details, shift extension and summary highlighting work',async({page})=>{
+  await page.goto('/');await page.getByRole('button',{name:'View demo',exact:true}).click();
+  const box=(await page.getByTestId('timeline-canvas').boundingBox())!;
+  const y=box.y+32+45+20;
+  await page.mouse.move(box.x+box.width*.4,y);
+  await expect(page.locator('.hover-card')).toBeVisible();
+  await expect(page.locator('.hover-card')).toContainText('Active');
+  await page.mouse.click(box.x+box.width*.4,y);
+  const first=await page.getByTestId('selection-caption').innerText();
+  await page.keyboard.down('Shift');await page.mouse.click(box.x+box.width*.65,y);await page.keyboard.up('Shift');
+  await expect(page.getByTestId('selection-caption')).not.toHaveText(first);
+  await page.getByRole('tab',{name:'Applications',exact:true}).click();
+  await page.locator('.summary-table tbody tr button').first().click();
+  await expect(page.locator('.summary-table tbody tr.highlighted')).toHaveCount(1);
+});

@@ -101,7 +101,7 @@ Genau das soll DagdaTime werden: automatische Erfassung, Zeitleiste und Taggen v
 <details>
 <summary><b>Funktioniert es unter Linux und Wayland?</b></summary>
 
-Ja, Linux ist eine vollwertige Plattform. X11 funktioniert bereits. Native Wayland-Backends für GNOME, KDE und wlroots-Compositoren (Sway, Hyprland) sind für M3 geplant.
+Ja, Linux ist eine vollwertige Plattform. X11 funktioniert bereits. Wayland-Backends für GNOME, KDE, Sway und Hyprland sind implementiert. GNOME/KDE benötigen eine lokale Integration; siehe [Wayland](docs/wayland.md). Manuelle Prüfung bleibt erforderlich.
 </details>
 
 <details>

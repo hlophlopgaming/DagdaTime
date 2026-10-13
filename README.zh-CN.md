@@ -101,7 +101,7 @@ cargo run --package dagdatime-app
 <details>
 <summary><b>它支持 Linux 和 Wayland 吗？</b></summary>
 
-支持，Linux 是一等公民平台。X11 已经可用。面向 GNOME、KDE 以及 wlroots 合成器（Sway、Hyprland）的原生 Wayland 后端计划在 M3 实现。
+支持，Linux 是一等公民平台。X11 已经可用。GNOME、KDE、Sway 和 Hyprland 的 Wayland 后端已实现。GNOME/KDE 需要本地集成，参见 [Wayland](docs/wayland.md)。仍需在实际环境中手动验证。
 </details>
 
 <details>

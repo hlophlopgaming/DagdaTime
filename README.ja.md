@@ -101,7 +101,7 @@ cargo run --package dagdatime-app
 <details>
 <summary><b>Linux や Wayland で動きますか？</b></summary>
 
-はい、Linux は主要なプラットフォームです。X11 はすでに動作しています。GNOME、KDE、wlroots 系コンポジター（Sway、Hyprland）向けのネイティブ Wayland バックエンドは M3 で予定しています。
+はい、Linux は主要なプラットフォームです。X11 はすでに動作しています。GNOME、KDE、Sway、Hyprland 向けの Wayland バックエンドを実装済みです。GNOME/KDE はローカル統合が必要です。[Wayland](docs/wayland.md) を参照してください。実環境での手動確認が必要です。
 </details>
 
 <details>

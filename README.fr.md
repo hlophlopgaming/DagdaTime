@@ -101,7 +101,7 @@ C'est exactement l'objectif de DagdaTime : suivi automatique, timeline et étiqu
 <details>
 <summary><b>Fonctionne-t-il sous Linux et Wayland ?</b></summary>
 
-Oui, Linux est une plateforme à part entière. X11 fonctionne déjà. Les backends Wayland natifs pour GNOME, KDE et les compositeurs wlroots (Sway, Hyprland) sont prévus pour M3.
+Oui, Linux est une plateforme à part entière. X11 fonctionne déjà. Les backends Wayland GNOME, KDE, Sway et Hyprland sont implémentés. GNOME/KDE nécessitent une intégration locale ; voir [Wayland](docs/wayland.md). Une vérification manuelle reste nécessaire.
 </details>
 
 <details>
