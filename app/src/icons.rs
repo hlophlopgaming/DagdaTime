@@ -362,15 +362,17 @@ fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
             return None;
         }
         resources.dc = dc;
-        let mut bitmap_info = BITMAPINFO::default();
-        bitmap_info.bmiHeader = BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: 32,
-            biHeight: -32,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB,
-            biSizeImage: 32 * 32 * 4,
+        let bitmap_info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: 32,
+                biHeight: -32,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB,
+                biSizeImage: 32 * 32 * 4,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut pixels = null_mut();
@@ -388,17 +390,7 @@ fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
             return None;
         }
         let bgra = unsafe { std::slice::from_raw_parts(pixels.cast::<u8>(), 32 * 32 * 4) };
-        let alpha_present = bgra.chunks_exact(4).any(|pixel| pixel[3] != 0);
-        let mut rgba = Vec::with_capacity(bgra.len());
-        for pixel in bgra.chunks_exact(4) {
-            rgba.extend_from_slice(&[
-                pixel[2],
-                pixel[1],
-                pixel[0],
-                if alpha_present { pixel[3] } else { 255 },
-            ]);
-        }
-        Some(rgba)
+        Some(bgra_to_rgba(bgra))
     })()?;
     encode_png(&bytes, 32, 32)
 }
@@ -455,6 +447,31 @@ fn encode_png(rgba: &[u8], width: u32, height: u32) -> Option<String> {
 
 fn icon_key(process: &str, app_name: &str) -> String {
     format!("{process}\0{app_name}")
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
+    let pixels = bgra.as_chunks::<4>().0;
+    let alpha_present = pixels.iter().any(|pixel| pixel[3] != 0);
+    let mut rgba = Vec::with_capacity(pixels.len() * 4);
+    for pixel in pixels {
+        rgba.extend_from_slice(&[
+            pixel[2],
+            pixel[1],
+            pixel[0],
+            if alpha_present { pixel[3] } else { 255 },
+        ]);
+    }
+    rgba
+}
+
+#[cfg(test)]
+mod pixel_tests {
+    #[test]
+    fn windows_icon_pixels_are_converted_to_rgba() {
+        assert_eq!(super::bgra_to_rgba(&[3, 2, 1, 0]), [1, 2, 3, 255]);
+        assert_eq!(super::bgra_to_rgba(&[3, 2, 1, 128]), [1, 2, 3, 128]);
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
