@@ -248,7 +248,7 @@ impl IconProvider for SystemIcons {
         #[cfg(target_os = "windows")]
         return windows_icon(process, app_name);
         #[cfg(target_os = "macos")]
-        return macos_icon(process);
+        return macos_icon(process, app_name);
         #[allow(unreachable_code)]
         let _ = (process, app_name);
         None
