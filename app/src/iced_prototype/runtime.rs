@@ -88,6 +88,7 @@ impl Runtime {
                     app: std::env::current_exe()
                         .map(|p| p.to_string_lossy().into_owned())
                         .unwrap_or_else(|_| "Runtime fixture".into()),
+                    app_name: "DagdaTime".into(),
                     title: "Iced runtime fixture".into(),
                     pid: Some(std::process::id()),
                 }),
@@ -134,7 +135,7 @@ impl Runtime {
         let apps = tracks[2]
             .segments
             .iter()
-            .map(|s| s.key.clone())
+            .filter_map(|segment| Some((segment.app.clone()?, segment.app_name.clone()?)))
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();

@@ -23,6 +23,7 @@ pub struct Segment {
     pub label: String,
     pub detail: String,
     pub app: Option<String>,
+    pub app_name: Option<String>,
     pub color: [f32; 3],
 }
 impl Segment {
@@ -33,6 +34,7 @@ impl Segment {
             label: label.into(),
             detail: String::new(),
             app: None,
+            app_name: None,
             color: color(key),
         }
     }
@@ -50,6 +52,7 @@ pub struct Summary {
     pub share: f64,
     pub color: [f32; 3],
     pub app: Option<String>,
+    pub app_name: Option<String>,
 }
 
 pub fn clip(value: Range, bounds: Range) -> Option<Range> {
@@ -123,6 +126,7 @@ pub fn summarize(segments: &[Segment], range: Range) -> Vec<Summary> {
                 share: duration as f64 / range.duration().max(1) as f64 * 100.0,
                 color: group[0].color,
                 app: group[0].app.clone(),
+                app_name: group[0].app_name.clone(),
             }
         })
         .collect();
@@ -168,6 +172,9 @@ pub fn process_label(app: &str) -> &str {
     app.rsplit(['/', '\\'])
         .find(|part| !part.is_empty())
         .unwrap_or(app)
+}
+pub fn application_identity(process: &str, app_name: &str) -> String {
+    format!("{process}\0{app_name}")
 }
 pub fn color(app: &str) -> [f32; 3] {
     let hash = app.chars().fold(2166136261u32, |hash, c| {
@@ -283,10 +290,16 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
             }
             "window" => {
                 let app = event.data["app"].as_str().unwrap_or("Unknown application");
+                let app_name = event.data["app_name"]
+                    .as_str()
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| process_label(app));
                 let title = event.data["title"].as_str().unwrap_or("Untitled window");
-                let mut segment = Segment::new(range, app, process_label(app));
+                let identity = application_identity(app, app_name);
+                let mut segment = Segment::new(range, &identity, app_name);
                 segment.detail = title.into();
                 segment.app = Some(app.into());
+                segment.app_name = Some(app_name.into());
                 result[2].segments.push(segment.clone());
                 segment.key = format!("{app}\0{title}");
                 segment.label = title.into();
@@ -338,22 +351,30 @@ pub fn fixture(day: Range) -> Vec<Track> {
     fixture_with_apps(
         day,
         &[
-            "Editor".into(),
-            "Browser".into(),
-            "Terminal".into(),
-            "Mail".into(),
-            "Design".into(),
+            ("Editor".into(), "Editor".into()),
+            ("Browser".into(), "Browser".into()),
+            ("Terminal".into(), "Terminal".into()),
+            ("Mail".into(), "Mail".into()),
+            ("Design".into(), "Design".into()),
         ],
     )
 }
-pub fn fixture_with_apps(day: Range, apps: &[String]) -> Vec<Track> {
+pub fn fixture_with_apps(day: Range, apps: &[(String, String)]) -> Vec<Track> {
     let mut events = Vec::new();
     let at = |hour: i64| day.start + hour * 3_600_000;
-    let fallback = ["Editor", "Browser", "Terminal", "Mail", "Design"];
-    let apps: Vec<&str> = if apps.is_empty() {
+    let fallback = [
+        ("Editor", "Editor"),
+        ("Browser", "Browser"),
+        ("Terminal", "Terminal"),
+        ("Mail", "Mail"),
+        ("Design", "Design"),
+    ];
+    let apps: Vec<(&str, &str)> = if apps.is_empty() {
         fallback.to_vec()
     } else {
-        apps.iter().map(String::as_str).collect()
+        apps.iter()
+            .map(|(process, name)| (process.as_str(), name.as_str()))
+            .collect()
     };
     let documents = [
         "Project plan",
@@ -377,7 +398,7 @@ pub fn fixture_with_apps(day: Range, apps: &[String]) -> Vec<Track> {
             bucket: "window".into(),
             start_ts: base + index * span / count,
             end_ts: base + (index + 1) * span / count,
-            data: serde_json::json!({"app":apps[i as usize % apps.len()],"title":documents[i as usize%8]}),
+            data: serde_json::json!({"app":apps[i as usize % apps.len()].0,"app_name":apps[i as usize % apps.len()].1,"title":format!("{} — {}", apps[i as usize % apps.len()].1, documents[i as usize % 8])}),
         });
     }
     for (start, end, status) in [(8, 12, "active"), (12, 13, "away"), (13, 18, "active")] {
@@ -461,16 +482,22 @@ mod tests {
     fn fixture_preserves_supplied_process_paths_for_application_identity() {
         let day = Range::new(0, 86_400_000);
         let apps = vec![
-            "/usr/bin/firefox".to_string(),
-            "/usr/bin/konsole".to_string(),
+            ("/usr/bin/steam".to_string(), "Balatro".to_string()),
+            ("/usr/bin/steam".to_string(), "Aseprite".to_string()),
         ];
         let data = fixture_with_apps(day, &apps);
-        let identities: std::collections::HashSet<_> = data[2]
+        let process_paths: std::collections::HashSet<_> = data[2]
             .segments
             .iter()
-            .map(|segment| segment.key.as_str())
+            .filter_map(|segment| segment.app.as_deref())
             .collect();
-        assert_eq!(identities, apps.iter().map(String::as_str).collect());
+        assert_eq!(process_paths, ["/usr/bin/steam"].into_iter().collect());
+        let names: std::collections::HashSet<_> = data[2]
+            .segments
+            .iter()
+            .filter_map(|segment| segment.app_name.as_deref())
+            .collect();
+        assert_eq!(names, ["Balatro", "Aseprite"].into_iter().collect());
     }
     #[test]
     fn process_identity_survives_restart_without_merging_other_executables() {
@@ -483,5 +510,32 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].duration, 20);
         assert_eq!(continuous_span(&segments[1], &segments), Range::new(0, 20));
+    }
+
+    #[test]
+    fn application_summary_separates_apps_sharing_a_launcher_process() {
+        let day = Range::new(0, 100);
+        let events = [
+            Event {
+                id: 1,
+                bucket: "window".into(),
+                start_ts: 0,
+                end_ts: 10,
+                data: serde_json::json!({"app":"/usr/bin/steam","app_name":"Balatro","title":"Balatro"}),
+            },
+            Event {
+                id: 2,
+                bucket: "window".into(),
+                start_ts: 10,
+                end_ts: 20,
+                data: serde_json::json!({"app":"/usr/bin/steam","app_name":"Aseprite","title":"Aseprite"}),
+            },
+        ];
+        let tracks = tracks(&events, &[], &[], day);
+        let summary = summarize(&tracks[2].segments, day);
+        let labels: std::collections::HashSet<_> =
+            summary.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(labels, ["Aseprite", "Balatro"].into_iter().collect());
+        assert_eq!(summary.len(), 2);
     }
 }

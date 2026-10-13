@@ -181,11 +181,13 @@ script changed both real KDE/Wayland collectors to ready without restarting
 KWin. Add a package-layout regression test. The bridge is installed per-user.
 
 Application and document summaries and timeline tooltips show local system
-icons. Linux matches desktop IDs, StartupWMClass, Name and Exec to desktop
-entries, then resolves the icon through the installed theme. A native command
-returns bounded image data, caches lookups and accepts no arbitrary file paths.
-No icon downloads or schema changes. Unknown apps and other OSes currently use
-a stable initial badge; native Windows/macOS icon extraction remains pending.
+icons. Linux matches the canonical process executable against desktop-entry
+Exec, then uses the app name to disambiguate entries sharing a launcher such as
+Steam before resolving the icon through the installed theme. Windows extracts
+the executable icon through the Shell/GDI APIs; macOS asks NSWorkspace for the
+bundle or executable icon. Lookups return bounded image data and are cached.
+Icons are local and require no database schema change. Ambiguous or missing
+matches use the stable initial badge.
 
 ## 2026-10-13 — Process identity for grouping and icons
 
@@ -197,11 +199,11 @@ the basename, and keeps different executables with the same basename separate.
 Existing JSON events retain their original identity; there is no table/schema
 change or speculative rewrite of historical process identities.
 
-Linux icons now require an exact canonical executable match against a desktop
-entry's Exec. Name, StartupWMClass and icon-name guesses are removed. ELF
-executables generally have no embedded icon; the associated desktop entry is
-used only after its executable has been verified. Missing/inaccessible metadata
-uses the fallback badge. Native Windows/macOS icon extraction remains pending.
+Linux icons require an exact canonical executable match against a desktop
+entry's Exec, with Name and StartupWMClass used only to disambiguate entries
+that share an executable. ELF executables generally have no embedded icon; the
+verified desktop entry supplies it. Missing or ambiguous metadata uses the
+fallback badge.
 
 ## 2026-10-13 — Iced frontend experiment
 
@@ -220,9 +222,25 @@ Autostart, macOS LaunchAgent, or Windows Run registration. Launch with
 `--autostart --minimized`, which starts collection and keeps the window in the
 tray. Use the current executable path; users need to toggle the setting again
 after moving the binary. On Linux, populate the preview with up to five
-installed applications, using their resolved executable paths as process
-identity so the strict icon lookup works without writing preview data. Keep
+installed applications, using their resolved executable paths and desktop
+names so shared launchers resolve correctly without writing preview data. Keep
 synthetic placeholders when no installed app icon resolves. Show real process
 icons in the Applications summary, and draw them in the Applications track
-only when a block is wide enough to read. Native Windows/macOS icon extraction
-remains future work.
+only when a block is wide enough to read. The same icon provider is used on
+Linux, Windows, and macOS.
+
+## 2026-10-13 — One Iced process per user
+
+Use an OS file lock in DagdaTime's default per-user data directory before
+starting the Iced event loop. A second launch exits cleanly; the OS releases the
+lock when the process exits, including after a crash. Keep the lock independent
+of the user-selected history directory so changing storage cannot start a
+second copy.
+
+## 2026-10-13 — Iced system, light, and dark themes
+
+Keep a three-state theme choice: System, Light, or Dark. Use Iced's native
+system-theme notifications on Windows and macOS. On Linux, read the XDG portal's
+appearance color-scheme over the existing session D-Bus connection and poll
+while System is selected, because Linux theme detection is disabled with Iced's
+default features off. Fall back to Light when the portal has no preference.

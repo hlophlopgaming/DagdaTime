@@ -82,7 +82,16 @@ async fn choose_data_directory(app: tauri::AppHandle) -> Result<Value, String> {
 #[tauri::command]
 async fn application_icons(apps: Vec<String>) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        serde_json::to_value(icons::application_icons(apps)).map_err(|e| e.to_string())
+        let icons =
+            icons::application_icons(apps.into_iter().map(|app| (app.clone(), app)).collect());
+        let icons = icons
+            .into_iter()
+            .map(|(identity, icon)| {
+                let process = identity.split('\0').next().unwrap_or(&identity);
+                (process.to_string(), icon)
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        serde_json::to_value(icons).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

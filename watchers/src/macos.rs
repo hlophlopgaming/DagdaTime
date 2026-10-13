@@ -76,12 +76,16 @@ impl WindowWatcher for MacWatcher {
             }
             let pid = app.processIdentifier();
             let app_name = app
+                .localizedName()
+                .map(|name| name.to_string())
+                .unwrap_or_default();
+            let app = app
                 .executableURL()
                 .and_then(|url| url.path())
                 .or_else(|| app.bundleIdentifier())
                 .or_else(|| app.localizedName())
                 .map(|name| name.to_string())
-                .unwrap_or_default();
+                .unwrap_or_else(|| app_name.clone());
             // SAFETY: pid comes from NSRunningApplication; Create returns an owned AX element.
             let application = unsafe { AXUIElementCreateApplication(pid) };
             if application.is_null() {
@@ -120,7 +124,8 @@ impl WindowWatcher for MacWatcher {
                 }
             };
             Ok(Some(WindowInfo {
-                app: app_name,
+                app,
+                app_name,
                 title,
                 pid: u32::try_from(pid).ok(),
             }))

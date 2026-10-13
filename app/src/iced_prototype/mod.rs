@@ -1,6 +1,8 @@
 //! Native Iced experiment: M4 functionality and resource-use comparison.
+mod appearance;
 mod model;
 mod runtime;
+mod single_instance;
 mod startup;
 mod timeline;
 mod tray;
@@ -74,6 +76,12 @@ pub enum Message {
     Move(usize, i32),
     More,
     Theme,
+    #[cfg(not(target_os = "linux"))]
+    SystemThemeChanged(iced::theme::Mode),
+    #[cfg(target_os = "linux")]
+    PortalThemeChanged(Option<iced::theme::Mode>),
+    #[cfg(target_os = "linux")]
+    RefreshSystemTheme,
     Start,
     AutoStart(bool),
     Demo,
@@ -113,11 +121,12 @@ struct State {
     demo: bool,
     tracks_menu: bool,
     theme: Theme,
-    dark: bool,
+    theme_preference: appearance::Preference,
+    system_theme: iced::theme::Mode,
     cache: widget::canvas::Cache,
     stats: Arc<timeline::PaintStats>,
     icons: HashMap<String, AppIcon>,
-    preview_apps: Vec<String>,
+    preview_apps: Vec<(String, String)>,
     runtime: Option<Runtime>,
     tray: Option<tray::Tray>,
     status: Value,
@@ -185,8 +194,9 @@ impl State {
             metrics: [0; 4],
             demo: true,
             tracks_menu: false,
-            theme: native_theme(true),
-            dark: true,
+            theme: native_theme(false),
+            theme_preference: appearance::Preference::System,
+            system_theme: iced::theme::Mode::None,
             cache: widget::canvas::Cache::new(),
             stats,
             icons,
@@ -220,7 +230,23 @@ impl State {
         }
         state.rebuild();
         let task = state.open(!launch.hidden || state.tray.is_none());
-        (state, task)
+        #[cfg(target_os = "linux")]
+        let system_theme = Task::perform(
+            async {
+                tokio::task::spawn_blocking(appearance::system_mode)
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            Message::PortalThemeChanged,
+        );
+        #[cfg(not(target_os = "linux"))]
+        let system_theme = iced::system::theme().map(Message::SystemThemeChanged);
+        (state, Task::batch([task, system_theme]))
+    }
+    fn apply_theme(&mut self) {
+        self.theme = native_theme(self.theme_preference.is_dark(self.system_theme));
+        self.cache.clear();
     }
     fn open(&mut self, visible: bool) -> Task<Message> {
         if let Some(id) = self.window {
@@ -326,7 +352,7 @@ impl State {
         self.rebuild();
     }
     fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
+        let mut subscriptions = vec![
             iced::time::every(Duration::from_millis(250)).map(|_| Message::Tick),
             window::close_requests().map(Message::Close),
             iced::event::listen_with(|event, status, _| match event {
@@ -339,7 +365,16 @@ impl State {
                 }
                 _ => None,
             }),
-        ])
+        ];
+        #[cfg(target_os = "linux")]
+        if self.theme_preference == appearance::Preference::System {
+            subscriptions.push(
+                iced::time::every(Duration::from_secs(2)).map(|_| Message::RefreshSystemTheme),
+            );
+        }
+        #[cfg(not(target_os = "linux"))]
+        subscriptions.push(iced::system::theme_changes().map(Message::SystemThemeChanged));
+        Subscription::batch(subscriptions)
     }
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
@@ -586,9 +621,38 @@ impl State {
             }
             Message::More => self.limit += 50,
             Message::Theme => {
-                self.dark = !self.dark;
-                self.theme = native_theme(self.dark);
-                self.cache.clear();
+                self.theme_preference = self.theme_preference.next();
+                self.apply_theme();
+            }
+            #[cfg(not(target_os = "linux"))]
+            Message::SystemThemeChanged(mode) => {
+                let changed = self.system_theme != mode;
+                self.system_theme = mode;
+                if changed && self.theme_preference == appearance::Preference::System {
+                    self.apply_theme();
+                }
+            }
+            #[cfg(target_os = "linux")]
+            Message::PortalThemeChanged(Some(mode)) => {
+                let changed = self.system_theme != mode;
+                self.system_theme = mode;
+                if changed && self.theme_preference == appearance::Preference::System {
+                    self.apply_theme();
+                }
+            }
+            #[cfg(target_os = "linux")]
+            Message::PortalThemeChanged(None) => {}
+            #[cfg(target_os = "linux")]
+            Message::RefreshSystemTheme => {
+                return Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(appearance::system_mode)
+                            .await
+                            .ok()
+                            .flatten()
+                    },
+                    Message::PortalThemeChanged,
+                );
             }
             Message::Start => self.start(),
             Message::AutoStart(enabled) => match startup::SystemStartup::new()
@@ -712,15 +776,16 @@ impl State {
             _ => "○ Preview",
         }
     }
-    fn app_icon<'a>(&'a self, app: &'a str) -> Element<'a, Message> {
-        match self.icons.get(app) {
+    fn app_icon<'a>(&'a self, app: &'a str, app_name: &'a str) -> Element<'a, Message> {
+        let icon_key = model::application_identity(app, app_name);
+        match self.icons.get(&icon_key) {
             Some(AppIcon::Png(handle)) => image(handle.clone()).width(20).height(20).into(),
             Some(AppIcon::Svg(handle)) => svg(handle.clone()).width(20).height(20).into(),
             None => {
-                let rgb = model::color(app);
+                let rgb = model::color(app_name);
                 container(
                     text(
-                        model::process_label(app)
+                        app_name
                             .chars()
                             .next()
                             .unwrap_or('?')
@@ -841,8 +906,10 @@ impl State {
                 .size(12)
             ]
             .spacing(5);
-            let details: Element<'_, Message> = if let Some(app) = segment.app.as_deref() {
-                row![self.app_icon(app), details]
+            let details: Element<'_, Message> = if let (Some(app), Some(app_name)) =
+                (segment.app.as_deref(), segment.app_name.as_deref())
+            {
+                row![self.app_icon(app, app_name), details]
                     .spacing(8)
                     .align_y(Alignment::Center)
                     .into()
@@ -905,8 +972,10 @@ impl State {
         let mut body = column![].spacing(3);
         for entry in self.rows.iter().take(self.limit) {
             let rgb = entry.color;
-            let icon: Element<'_, Message> = if let Some(app) = entry.app.as_deref() {
-                self.app_icon(app)
+            let icon: Element<'_, Message> = if let (Some(app), Some(app_name)) =
+                (entry.app.as_deref(), entry.app_name.as_deref())
+            {
+                self.app_icon(app, app_name)
             } else {
                 container(space::horizontal())
                     .width(10)
@@ -1093,7 +1162,8 @@ impl State {
             text(self.status_label()).size(13),
             control,
             button(if self.demo { "Live data" } else { "View demo" }).on_press(Message::Demo),
-            button("Theme").on_press(Message::Theme),
+            button(text(format!("Theme: {}", self.theme_preference.label())))
+                .on_press(Message::Theme),
             button("Quit").on_press(Message::Quit)
         ]
         .spacing(9)
@@ -1219,6 +1289,17 @@ pub fn run() -> iced::Result {
             }
         }
     }
+    let _instance_lock = match single_instance::SingleInstanceLock::acquire() {
+        Ok(Some(lock)) => lock,
+        Ok(None) => {
+            eprintln!("DagdaTime is already running.");
+            return Ok(());
+        }
+        Err(error) => {
+            eprintln!("Cannot check whether DagdaTime is already running: {error}");
+            std::process::exit(1);
+        }
+    };
     #[cfg(target_os = "linux")]
     if let Err(error) = gtk::init() {
         eprintln!("GTK tray initialization: {error}");

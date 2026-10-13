@@ -119,7 +119,12 @@ impl WindowWatcher for X11Watcher {
             .value32()
             .and_then(|mut values| values.next())
             .filter(|pid| *pid != 0);
-        Ok(Some(WindowInfo { app, title, pid }))
+        Ok(Some(WindowInfo {
+            app_name: app.clone(),
+            app,
+            title,
+            pid,
+        }))
     }
 }
 

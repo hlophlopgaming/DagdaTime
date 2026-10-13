@@ -4,6 +4,7 @@ use super::*;
 fn mock_implements_both_traits_without_native_apis() {
     let window = WindowInfo {
         app: "editor".into(),
+        app_name: "Editor".into(),
         title: "main.rs".into(),
         pid: Some(42),
     };
@@ -134,6 +135,7 @@ fn x11_fixture_reads_window_title_pid_and_idle() {
         watcher.active_window().unwrap(),
         Some(WindowInfo {
             app: "FixtureEditor".into(),
+            app_name: "FixtureEditor".into(),
             title: "Документ".into(),
             pid: Some(42)
         })
@@ -189,6 +191,7 @@ fn x11_fixture_reads_window_title_pid_and_idle() {
 fn process_identity_comes_from_pid_not_window_class() {
     let window = super::wayland::process_identity(WindowInfo {
         app: "Misleading window class".into(),
+        app_name: "Misleading window class".into(),
         title: "Any title".into(),
         pid: Some(std::process::id()),
     });
@@ -196,4 +199,5 @@ fn process_identity_comes_from_pid_not_window_class() {
         std::path::PathBuf::from(window.app),
         std::env::current_exe().unwrap()
     );
+    assert_eq!(window.app_name, "Misleading window class");
 }

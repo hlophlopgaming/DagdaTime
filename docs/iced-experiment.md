@@ -12,13 +12,15 @@ frontend.
 Run `cargo run --release --package dagdatime-app --bin dagdatime-iced` or
 download the `DagdaTime-Iced-*` artifact from this branch's GitHub Actions run.
 The first screen is a generated preview of 5,000 events; it does not read or
-write the activity database. Use the Theme control to switch palettes and try
-date navigation, search, track visibility/order, zoom, pan, range selection,
-and the summaries. The Day view opens on Applications so each real process has
+write the activity database. The **Theme** button cycles System, Light, and
+Dark. System follows Windows/macOS theme changes and reads Linux's XDG
+appearance setting. Try date navigation, search, track visibility/order, zoom,
+pan, range selection, and the summaries. The Day view opens on Applications so each real process has
 its system icon beside its total; zooming in also shows icons on wider blocks
 in the Applications track. On Linux, preview events use up to five installed
 applications discovered from desktop entries, keeping each real executable path
-as its process identity so the matching system icon appears. If no app icons can
+as process identity plus desktop name so shared launchers resolve to the right
+system icon. If no app icons can
 be resolved, the preview falls back to generated names and monogram placeholders.
 
 To record real activity, quit the running DagdaTime/Tauri app from its tray,
@@ -40,7 +42,9 @@ On Linux, the executable uses the host's GTK tray integration and builds both
 X11 and Wayland window backends. Install GTK 3 and libxkbcommon-x11 runtime
 libraries if your distribution does not already provide them. Other systems
 use their native window and tray integration. The application UI is one
-executable and does not start a tracker helper.
+executable and does not start a tracker helper. Only one Iced process can run
+per user; another launch exits with a short message. The OS releases the lock
+when the running process exits.
 
 ## Current memory sample
 
@@ -61,13 +65,13 @@ lifecycle check closes the native window, checks that recording continues,
 then reopens the window from the tray. CI also enables and disables the real
 per-user startup registration on an isolated runner. These checks do not
 exercise real focus, accessibility permissions, tray interaction, or system
-theme integration on each desktop. Native app icon extraction is implemented
-for Linux; Windows and macOS still use the app initials until their native icon
-providers are added.
+theme integration on each desktop. Native icon providers are implemented for
+Linux, Windows, and macOS; verify their results with real installed apps on each
+platform.
 
-Manually check the release binary on macOS with Accessibility permission
-granted, on Windows with several foreground applications, and on Linux under
-both X11 and Wayland. Confirm the correct application icons, tray open/quit,
-folder selection, timeline drag/zoom/pan, and that recording continues while
-the window is closed. This container's local native run covers KDE Plasma on
-Wayland only.
+The release binary was launched on this Linux desktop under both X11 and KDE
+Plasma Wayland. The real installed-app icons appeared in both previews; the
+screenshot above was captured from that run. Manually check macOS with
+Accessibility permission granted and Windows with several foreground
+applications. Also verify tray open/quit, folder selection, timeline
+drag/zoom/pan, and continued recording with the window closed on those systems.

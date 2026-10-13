@@ -5,6 +5,7 @@ use dagdatime_watchers::{MockWatcher, WatcherError, WindowInfo};
 fn window(app: &str) -> WindowInfo {
     WindowInfo {
         app: app.into(),
+        app_name: app.into(),
         title: format!("{app} title"),
         pid: Some(1),
     }
