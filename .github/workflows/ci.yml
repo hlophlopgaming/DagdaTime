@@ -20,6 +20,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci --prefix app/frontend
+      - run: npm --prefix app/frontend test
+      - run: npm --prefix app/frontend run build
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -34,3 +41,21 @@ jobs:
         run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package dagdatime-watchers --package dagdatime-daemon -- --ignored --test-threads=1
       - run: cargo build --package dagdatime-daemon
       - run: cargo build --package dagdatime-app --release
+      - name: Launch desktop and verify frontend readiness (Linux)
+        if: runner.os == 'Linux'
+        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1 xvfb-run -a target/release/dagdatime-app --smoke-test
+      - name: Launch desktop and verify frontend readiness (macOS)
+        if: runner.os == 'macOS'
+        run: target/release/dagdatime-app --smoke-test
+      - name: Launch desktop and verify frontend readiness (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $process = Start-Process target/release/dagdatime-app.exe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Browser UI tests
+        if: runner.os == 'Linux'
+        run: |
+          cd app/frontend
+          npx playwright install --with-deps chromium
+          npm run test:e2e

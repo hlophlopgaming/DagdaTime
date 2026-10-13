@@ -132,3 +132,20 @@ Sway and Hyprland window data comes from bounded, timed Unix-socket IPC queries.
 Unsupported compositors or missing components are errors in `/status`, not empty
 success. Idle history before process startup cannot be recovered from the idle
 protocol. Installation and compositor checks are in docs/wayland.md.
+
+## 2026-10-13 — M3.5 desktop shell
+
+Choose React 19 + TypeScript with Vite, using React's own state hooks and no
+additional UI/state libraries. Compile assets locally and embed them in Tauri;
+the frontend has no network client or API token. A small whitelist of Tauri
+commands proxies only the necessary localhost routes with redirects/proxies
+disabled. Both tray actions and window actions call the same daemon control API.
+Closing hides the window when a tray exists; Quit stops the daemon and app.
+If the OS cannot provide a tray, closing behaves normally so the app is not
+hidden without a way to reopen it. The daemon executable sits beside the app
+for development; packaging sidecars/installers remains M10.
+
+Use Node's test runner for pure frontend logic and Playwright for browser UI
+tests with mocked Tauri IPC. `--smoke-test` launches the actual desktop WebView
+and succeeds only after React mounts and invokes a readiness command; it does
+not start recording. Run this launch test in the CI matrix on all three OSes.

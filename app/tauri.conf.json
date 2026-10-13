@@ -4,14 +4,15 @@
   "version": "0.1.0",
   "identifier": "org.dagdatime.desktop",
   "build": {
-    "frontendDist": "frontend"
+    "frontendDist": "frontend/dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
-      { "title": "DagdaTime", "width": 1000, "height": 700 }
+      { "title": "DagdaTime", "width": 1280, "height": 820, "minWidth": 900, "minHeight": 600 }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; img-src 'self' data:"
     }
   },
   "bundle": { "active": false, "icon": ["icons/icon.png", "icons/icon.ico"] }

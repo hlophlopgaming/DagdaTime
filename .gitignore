@@ -1,3 +1,7 @@
 /target/
 /app/gen/
 __pycache__/
+/app/frontend/node_modules/
+/app/frontend/dist/
+/app/frontend/test-results/
+/app/frontend/playwright-report/
