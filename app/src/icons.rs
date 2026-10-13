@@ -285,12 +285,8 @@ pub fn application_icons(
 
 #[cfg(target_os = "windows")]
 fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
-    use std::{
-        os::windows::ffi::OsStrExt,
-        ptr::{null_mut, NonNull},
-    };
+    use std::{os::windows::ffi::OsStrExt, ptr::null_mut};
     use windows_sys::Win32::{
-        Foundation::{HANDLE, HWND},
         Graphics::Gdi::{
             CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
             SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC,
@@ -322,7 +318,7 @@ fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
                     DeleteDC(self.dc);
                 }
                 if !self.screen.is_null() {
-                    ReleaseDC(null_mut::<HWND>(), self.screen);
+                    ReleaseDC(null_mut(), self.screen);
                 }
                 if !self.icon.is_null() {
                     DestroyIcon(self.icon);
@@ -356,7 +352,7 @@ fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
         previous: null_mut(),
     };
     let bytes = (|| {
-        let screen = unsafe { GetDC(null_mut::<HWND>()) };
+        let screen = unsafe { GetDC(null_mut()) };
         if screen.is_null() {
             return None;
         }
@@ -379,14 +375,7 @@ fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
         };
         let mut pixels = null_mut();
         resources.bitmap = unsafe {
-            CreateDIBSection(
-                dc,
-                &bitmap_info,
-                DIB_RGB_COLORS,
-                &mut pixels,
-                null_mut::<HANDLE>(),
-                0,
-            )
+            CreateDIBSection(dc, &bitmap_info, DIB_RGB_COLORS, &mut pixels, null_mut(), 0)
         };
         if resources.bitmap.is_null() || pixels.is_null() {
             return None;
