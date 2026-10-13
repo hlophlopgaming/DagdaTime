@@ -1,86 +1,139 @@
+<div align="center">
+
 # DagdaTime
 
-A local, private desktop time tracker, licensed under GPLv3. The project is
-currently at M2: a Rust workspace, an empty Tauri 2 window, tested SQLite
-storage and native window/idle watchers. Continuous recording is not implemented yet.
-The application makes no external network
-calls and has no telemetry.
+### Open-source, cross-platform ManicTime alternative
 
-## Development
+**Automatic time tracking that stays on your computer.**<br>
+See where your day went on a timeline, tag time to projects, get honest reports. Free and private.
 
-Install stable Rust. On Linux, install the Tauri 2 system dependencies
-(GTK 3, WebKitGTK 4.1, OpenSSL, Ayatana AppIndicator and librsvg development
-packages). Windows requires MSVC build tools and WebView2; macOS requires
-Xcode command-line tools.
+[![CI](https://github.com/hlophlopgaming/DagdaTime/actions/workflows/ci.yml/badge.svg)](https://github.com/hlophlopgaming/DagdaTime/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational)
+![Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-orange)
+![No telemetry](https://img.shields.io/badge/telemetry-none-success)
+[![GitHub stars](https://img.shields.io/github/stars/hlophlopgaming/DagdaTime?style=social)](https://github.com/hlophlopgaming/DagdaTime/stargazers)
+
+**English** · [Русский](README.ru.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
+
+</div>
+
+---
+
+> [!IMPORTANT]
+> **DagdaTime is in early development.** Native window and idle tracking already work on Windows, macOS and Linux (X11). The timeline, tags and reports are next on the [roadmap](#roadmap).
+> ⭐ **Star** or 👀 **Watch** the repo to follow progress and get notified about the first release.
+
+## Why DagdaTime?
+
+You open your laptop at 9, and suddenly it's 18:00. Where did the day go?
+
+**ManicTime** answers that question well, but it is closed source and its most useful features sit behind a paid license. **DagdaTime** aims to be the same kind of tool, built in the open:
+
+- 🕒 **Automatic tracking.** Records the active app, window title and whether you were at the computer. No timers to start or forget.
+- 📊 **Timeline view.** Your whole day on parallel tracks: computer usage, applications, documents & websites, tags.
+- 🏷️ **Tag time, not tasks.** Drag across the timeline and assign the range to a project or client. Rules can tag it automatically.
+- 🔒 **Private by default.** Everything lives in a local SQLite file. No account, no cloud, no telemetry, no network calls.
+- 💻 **Truly cross-platform.** Windows, macOS and Linux from one Rust codebase, including native **Wayland** support (GNOME, KDE, Sway/Hyprland), not just XWayland.
+- 🆓 **Free forever.** GPL-3.0. No "Pro" tier.
+
+## DagdaTime vs ManicTime vs ActivityWatch
+
+|  | **DagdaTime** | ManicTime | ActivityWatch |
+|---|---|---|---|
+| Open source | ✅ GPL-3.0 | ❌ Proprietary | ✅ MPL-2.0 |
+| Price | ✅ Free | Free edition, paid Pro | ✅ Free |
+| Data stays on your machine | ✅ | ✅ | ✅ |
+| Timeline with manual tagging of time ranges | 🚧 Planned (M5) | ✅ | Rule-based categories |
+| Auto-tagging rules (app / title / URL) | 🚧 Planned (M6) | ✅ | ✅ |
+| Native Wayland backends | 🚧 Planned (M3) | — | Limited |
+| Import from ActivityWatch | 🚧 Planned (M7) | ❌ | — |
+
+DagdaTime keeps its event format compatible with ActivityWatch, so you can bring your history with you.
+
+## Roadmap
+
+- [x] **M0** Rust workspace, Tauri 2 desktop shell, CI on Windows / macOS / Linux
+- [x] **M1** SQLite storage with migrations and heartbeat event merging
+- [x] **M2** Native watchers: active window + idle time on Windows, macOS, Linux X11
+- [ ] **M3** Background daemon, local API, AFK detection, Wayland (GNOME, KDE, wlroots)
+- [ ] **M3.5** App shell: main window, navigation, tracking status, tray icon with pause/resume
+- [ ] **M4** Day view: timeline, range selection, summary panel (like ManicTime)
+- [ ] **M5** Tags: select a range on the timeline → assign a project
+- [ ] **M6** Auto-tagging rules
+- [ ] **M7** Reports, CSV/JSON export, ActivityWatch import
+- [ ] **M9** Browser extension for URLs (Firefox, Chromium)
+- [ ] **M10** Tray icon, autostart, privacy controls, installers (MSI, DMG, AppImage/Flatpak)
+- [ ] **Later** Screenshots, database encryption, multi-device sync
+
+Full details: [PLAN.md](PLAN.md) · Architecture decisions: [docs/decisions.md](docs/decisions.md)
+
+## Try it (developers)
+
+There are no installers yet. You can build from source and run the watcher debug tool, which prints the active window and idle time once per second:
 
 ```sh
-python3 -m unittest discover -s tests
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo run --package dagdatime-app
-```
-
-Dependency downloads and CI setup require internet access; application runtime
-uses embedded local assets. No Node.js installation is needed for M0.
-
-CI checks Linux, Windows and macOS and builds the desktop executable in release
-mode. On each platform, launch the app and verify that one empty window titled
-DagdaTime opens and closes normally. On Linux, check both X11 and Wayland
-sessions where available. Tracking backends are outside M0.
-
-See [PLAN.md](PLAN.md) for milestones and [docs/decisions.md](docs/decisions.md)
-for architectural decisions.
-
-## Watcher debug CLI
-
-```sh
+git clone https://github.com/hlophlopgaming/DagdaTime.git
+cd DagdaTime
 cargo run --package dagdatime-daemon --bin tracker -- debug
 ```
 
-The `tracker debug` command prints one JSON sample per second, containing
-`window` (`app`, `title`, `pid`), `idle_seconds` and `errors`. Stop with Ctrl+C.
-It writes no database and sends no telemetry. Missing windows appear as `null`;
-watcher errors are reported explicitly, and the other watcher continues working.
+Build requirements and platform notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-Windows uses Win32, Linux uses local X11 EWMH and XScreenSaver, and macOS uses
-AppKit/Accessibility and CoreGraphics. Wayland is scheduled for M3; M2 rejects
-Wayland sessions rather than treating XWayland as complete desktop coverage.
+## Privacy
 
-Manual verification on Windows, macOS and Linux X11:
+A time tracker sees everything you do, so this is non-negotiable:
 
-1. Run the command in a desktop session. Switch between two apps and windows;
-   confirm app identity, title (including Unicode) and PID change accordingly.
-2. Leave keyboard and mouse untouched for several seconds. Confirm idle time
-   increases, then resets after input. Ctrl+C must stop the process.
-3. On macOS, first deny Accessibility permission and confirm the explicit error
-   alongside working idle readings. Grant the terminal or tracker executable
-   access in System Settings → Privacy & Security → Accessibility, then retry.
-   Switching apps must keep updating; AppKit is polled on the main thread.
-4. On Windows, try a protected/elevated process: failed process queries must
-   produce an error and recover on switching to an accessible process.
-5. On Wayland, confirm M2 exits with an explicit unsupported-session message.
+- All data is stored locally in a single SQLite file that you own.
+- DagdaTime makes **no external network calls** and has **no telemetry**.
+- Planned: excluded apps, window-title masking, optional database encryption.
 
-Linux CI additionally uses Xvfb to exercise a real test window, Unicode and
-legacy titles, PID lookup, idle growth, and the CLI's one-second interval:
+## FAQ
 
-```sh
-env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package dagdatime-watchers --package dagdatime-daemon -- --ignored --test-threads=1
-```
+<details>
+<summary><b>Is there a free, open-source alternative to ManicTime?</b></summary>
 
-These tests change the X11 root's active-window property: run them only on a
-dedicated display such as Xvfb, never on your working desktop. CI builds the
-CLI on all three OSes, but cannot verify real Windows/macOS desktop permissions.
+That is exactly what DagdaTime is built to be: automatic tracking, a timeline and time tagging, free and GPL-licensed, on Windows, macOS and Linux.
+</details>
 
-## Storage API
+<details>
+<summary><b>Does it work on Linux and Wayland?</b></summary>
 
-`dagdatime_core::Storage::open(path)` opens or creates a database and applies
-its migrations. `Storage::open_in_memory()` provides the same schema for tests.
-`heartbeat(bucket, &data, ts, pulsetime)` returns the inserted or extended
-`Event`; `data` is a `serde_json::Value`. Timestamps and pulsetime are in
-milliseconds, and timestamps must be nondecreasing within a bucket.
+Yes, Linux is a first-class platform. X11 already works. Native Wayland backends for GNOME, KDE and wlroots compositors (Sway, Hyprland) are scheduled for M3.
+</details>
 
-An event starts with zero duration. Matching heartbeats extend its end when
-the gap is strictly less than pulsetime; a different payload or a gap greater
-than or equal to pulsetime creates a new event. Databases with a newer schema
-are rejected. No storage is connected to the desktop shell or daemon yet.
+<details>
+<summary><b>Is it an alternative to RescueTime, Timing or WakaTime too?</b></summary>
+
+Partly. Like RescueTime and Timing it tracks your computer usage automatically, but everything stays local and there is no subscription. It is not limited to code editors like WakaTime.
+</details>
+
+<details>
+<summary><b>Can I import my ManicTime or ActivityWatch data?</b></summary>
+
+ActivityWatch import is planned for M7. ManicTime import is under consideration: open an issue if you need it.
+</details>
+
+<details>
+<summary><b>Does it upload my data anywhere?</b></summary>
+
+No. There is no server, account or analytics. Multi-device sync may come later, and it will be opt-in.
+</details>
+
+## Contributing
+
+Contributions are welcome, especially from people who know:
+
+- **Wayland** compositors (GNOME Shell extensions, KWin scripts, wlroots IPC)
+- **macOS** Accessibility APIs
+- **Timeline UI** design and data visualization
+
+Open an issue to discuss an idea, or pick a milestone from [PLAN.md](PLAN.md). The project is developed with AI coding agents; their working rules are in [AGENTS.md](AGENTS.md).
+
+If DagdaTime looks useful to you, **a star helps other people find it.** ⭐
+
+## License
+
+[GPL-3.0](LICENSE)
+
+<sub>ManicTime, RescueTime, Timing and WakaTime are trademarks of their respective owners. DagdaTime is an independent project and is not affiliated with them.</sub>
