@@ -1,8 +1,8 @@
 # DagdaTime
 
 A local, private desktop time tracker, licensed under GPLv3. The project is
-currently at M1: a Rust workspace, an empty Tauri 2 window and tested SQLite
-storage with heartbeat merging. Automatic tracking is not implemented yet.
+currently at M2: a Rust workspace, an empty Tauri 2 window, tested SQLite
+storage and native window/idle watchers. Continuous recording is not implemented yet.
 The application makes no external network
 calls and has no telemetry.
 
@@ -31,6 +31,46 @@ sessions where available. Tracking backends are outside M0.
 
 See [PLAN.md](PLAN.md) for milestones and [docs/decisions.md](docs/decisions.md)
 for architectural decisions.
+
+## Watcher debug CLI
+
+```sh
+cargo run --package dagdatime-daemon --bin tracker -- debug
+```
+
+The `tracker debug` command prints one JSON sample per second, containing
+`window` (`app`, `title`, `pid`), `idle_seconds` and `errors`. Stop with Ctrl+C.
+It writes no database and sends no telemetry. Missing windows appear as `null`;
+watcher errors are reported explicitly, and the other watcher continues working.
+
+Windows uses Win32, Linux uses local X11 EWMH and XScreenSaver, and macOS uses
+AppKit/Accessibility and CoreGraphics. Wayland is scheduled for M3; M2 rejects
+Wayland sessions rather than treating XWayland as complete desktop coverage.
+
+Manual verification on Windows, macOS and Linux X11:
+
+1. Run the command in a desktop session. Switch between two apps and windows;
+   confirm app identity, title (including Unicode) and PID change accordingly.
+2. Leave keyboard and mouse untouched for several seconds. Confirm idle time
+   increases, then resets after input. Ctrl+C must stop the process.
+3. On macOS, first deny Accessibility permission and confirm the explicit error
+   alongside working idle readings. Grant the terminal or tracker executable
+   access in System Settings → Privacy & Security → Accessibility, then retry.
+   Switching apps must keep updating; AppKit is polled on the main thread.
+4. On Windows, try a protected/elevated process: failed process queries must
+   produce an error and recover on switching to an accessible process.
+5. On Wayland, confirm M2 exits with an explicit unsupported-session message.
+
+Linux CI additionally uses Xvfb to exercise a real test window, Unicode and
+legacy titles, PID lookup, idle growth, and the CLI's one-second interval:
+
+```sh
+env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package dagdatime-watchers --package dagdatime-daemon -- --ignored --test-threads=1
+```
+
+These tests change the X11 root's active-window property: run them only on a
+dedicated display such as Xvfb, never on your working desktop. CI builds the
+CLI on all three OSes, but cannot verify real Windows/macOS desktop permissions.
 
 ## Storage API
 

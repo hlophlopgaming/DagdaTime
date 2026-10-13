@@ -146,6 +146,8 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 - Polling loop; AFK logic (idle > 5 min → `away`, configurable).
 - REST: `GET /events?bucket&from&to`, CRUD for `/tags`, `/tag_ranges`, `/rules`.
 - ✅ Integration test with `MockWatcher`: a simulated 10-minute scenario produces the expected events.
+- Wayland backends: GNOME (D-Bus + extension), KDE (KWin script), wlroots (IPC).
+- ✅ Wayland graceful fallback: if no backend is available, the UI clearly says so instead of silently recording nothing.
 
 ### M4 — Timeline UI
 - Tracks: Computer, Applications, Documents/URLs, Tags. Zoom (day ↔ hour), hover details.
@@ -163,9 +165,8 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 - Day/week summaries by application and by tag; CSV/JSON export; ActivityWatch import.
 - ✅ Export → import round-trip test.
 
-### M8 — Wayland
-- Separate backends: GNOME (D-Bus + extension), KDE (KWin script), wlroots (IPC).
-- ✅ Graceful fallback: if no backend is available, the UI clearly says so instead of silently recording nothing.
+### M8 — Reserved
+- Wayland scope and acceptance criteria moved to M3 at the user's request.
 
 ### M9 — Browser extension
 - Firefox + Chromium; sends active tab URL/title to the daemon.
@@ -183,6 +184,6 @@ Screenshots, DB encryption, multi-device sync (CRDT or self-hosted server).
 ## 6. Risks
 
 - **macOS permissions** (Accessibility / Screen Recording): needs clear onboarding, otherwise titles come back empty.
-- **Wayland**: the most labor-intensive part; deliberately postponed to M8.
+- **Wayland**: the most labor-intensive part; scheduled in M3 before the timeline UI.
 - **DB growth**: index on `start_ts`, optional aggregation of old data.
 - **Privacy**: the tracker sees everything. Nothing leaves the machine by default — state this in the README.

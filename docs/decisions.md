@@ -45,3 +45,53 @@ nonempty bucket. Reject timestamps earlier than the bucket's last end to avoid
 silently shortening or overlapping recorded events; historical import belongs
 to M7. Read/merge/insert executes in one immediate transaction so competing
 writers cannot race. The core never reads the wall clock or makes network calls.
+
+## 2026-10-13 — Wayland moves to M3
+
+At the user's request, move the GNOME, KDE and wlroots backends and the explicit
+unsupported-backend UI acceptance criterion from M8 to M3. Keep M8 reserved
+to preserve the remaining milestone identifiers. M2 still covers Windows,
+macOS and X11. M3 must provide a visible fallback before the timeline arrives
+in M4; it cannot silently ignore unsupported Wayland sessions.
+
+## 2026-10-13 — M2 watcher interfaces and native APIs
+
+Keep `WindowWatcher`, `IdleWatcher`, `WindowInfo` and a controllable `MockWatcher`
+in the watchers crate. Errors distinguish permission, unsupported session and
+platform failure. Both native and mock implementations use the same traits;
+the daemon's debug sampling depends only on those traits.
+
+Use `windows-sys` for foreground window, UTF-16 title, PID, executable name
+and current-session idle time. Own process handles with the standard library's
+`OwnedHandle`. Compute idle from wrapping 32-bit ticks to match GetLastInputInfo;
+idle periods longer than a full 49.7-day counter cycle cannot be reconstructed.
+Use `x11rb` EWMH properties and XScreenSaver for X11, with WM_NAME fallback
+for legacy titles and WM_CLASS for application identity. Restrict connections
+to local Unix-socket displays and reject Wayland sessions, since XWayland cannot
+report native Wayland windows. Native Wayland backends arrive in M3.
+
+Use AppKit `NSWorkspace` via `objc2` on the main thread, pumping its run loop
+to refresh cached application state. Read the focused window title through
+Accessibility; explicitly report missing permission. Keep CoreFoundation Create/
+Copy ownership in RAII objects and bound Accessibility messaging to 0.5 seconds.
+Use CoreGraphics combined-session idle time. Unsafe FFI stays in OS-specific
+watcher modules, never in sampling or storage logic.
+
+API references: [Win32 process image](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew),
+[Win32 idle input](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getlastinputinfo),
+[AppKit frontmost application](https://developer.apple.com/documentation/appkit/nsworkspace/frontmostapplication),
+[CoreGraphics idle time](https://developer.apple.com/documentation/coregraphics/cgeventsource/secondssincelasteventtype(_:eventtype:)).
+
+## 2026-10-13 — M2 diagnostic CLI and validation
+
+Name the daemon package's executable `tracker` to provide `tracker debug` as
+specified in PLAN.md. Emit one flushed JSON line per sample so window titles
+cannot inject extra output lines. Report window and idle errors independently;
+retry on the next tick. Poll on a monotonic one-second interval, subtracting
+sample time; slow native calls can delay a tick. Do not write events or start
+an API server until M3.
+
+Mock tests run without a desktop on every OS. Dedicated Xvfb tests on Linux
+verify actual window properties and polling interval, avoiding changes to a
+user's desktop. Windows/macOS compilation is checked by CI; real focus, input
+and Accessibility permissions still require the manual checks in README.md.
