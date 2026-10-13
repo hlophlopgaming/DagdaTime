@@ -437,7 +437,7 @@ fn macos_icon(process: &str, _app_name: &str) -> Option<String> {
     let png = unsafe {
         bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
     }?;
-    let length = usize::try_from(png.length()).ok()?;
+    let length = png.length();
     if length == 0 || length > 2_000_000 {
         return None;
     }
