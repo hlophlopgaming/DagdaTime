@@ -101,10 +101,67 @@ fn show(app: &tauri::AppHandle, settings: bool) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
+        // The frontend stops polling while hidden; tell it to resume.
+        let _ = app.emit("window-visibility", true);
     }
     if settings {
         let _ = app.emit("open-settings", ());
     }
+}
+
+/// The tracker runs inside this process, so the tray reads its state directly
+/// instead of making a loopback HTTP request every second.
+fn embedded_service(handle: &tauri::AppHandle) -> Option<dagdatime_daemon::Shared> {
+    let runtime = handle.state::<embedded::Runtime>();
+    let shared = runtime.0.lock().unwrap().clone()?;
+    let running = !shared.control.lock().unwrap().shutdown;
+    running.then_some(shared)
+}
+
+fn current_status(handle: &tauri::AppHandle) -> Option<Value> {
+    match embedded_service(handle) {
+        Some(shared) => serde_json::to_value(shared.status()).ok(),
+        None => local::request("/status", "GET", &Value::Null).ok(),
+    }
+}
+
+fn active_today(handle: &tauri::AppHandle) -> Option<i64> {
+    use chrono::{Datelike, TimeZone};
+    let now = chrono::Local::now();
+    let start = chrono::Local
+        .with_ymd_and_hms(now.year(), now.month(), now.day(), 0, 0, 0)
+        .earliest()?
+        .timestamp_millis();
+    let now = now.timestamp_millis();
+    let events = match embedded_service(handle) {
+        Some(shared) => {
+            let events = shared
+                .storage
+                .lock()
+                .unwrap()
+                .events(Some("afk"), start, now)
+                .ok()?;
+            serde_json::to_value(events).ok()?
+        }
+        None => local::request(
+            &format!("/events?bucket=afk&from={start}&to={now}"),
+            "GET",
+            &Value::Null,
+        )
+        .ok()?,
+    };
+    Some(
+        events
+            .as_array()?
+            .iter()
+            .filter(|event| event["data"]["status"] == "active")
+            .map(|event| {
+                (event["end_ts"].as_i64().unwrap_or(0).min(now)
+                    - event["start_ts"].as_i64().unwrap_or(0).max(start))
+                .max(0)
+            })
+            .sum(),
+    )
 }
 
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -172,62 +229,55 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let handle = app.handle().clone();
     std::thread::spawn(move || {
         let mut tick = 0u64;
+        // Menu items and the tray icon are only touched when what they show changes:
+        // on Linux every set_icon writes a new PNG for the indicator.
+        let mut shown: Option<(&'static str, [u8; 3], String, bool, bool)> = None;
+        let mut shown_total = String::new();
         loop {
-            let status = local::request("/status", "GET", &Value::Null).ok();
+            let status = current_status(&handle);
             let view = shell::view(status.as_ref());
-            let _ = status_item.set_text(view.label);
             let app_name = status
                 .as_ref()
                 .and_then(|value| value["current_window"]["app"].as_str())
-                .unwrap_or("No current activity");
-            let _ = activity.set_text(app_name);
+                .map(|app| {
+                    std::path::Path::new(app).file_name().map_or_else(
+                        || app.to_owned(),
+                        |name| name.to_string_lossy().into_owned(),
+                    )
+                })
+                .unwrap_or_else(|| "No current activity".into());
             let paused = status
                 .as_ref()
                 .is_some_and(|value| value["state"] == "paused");
-            let _ = resume.set_enabled(paused);
-            let _ = pause.set_enabled(status.is_some() && !paused);
-            let _ = pause15.set_enabled(status.is_some() && !paused);
-            let _ = pause60.set_enabled(status.is_some() && !paused);
-            if let Some(tray) = handle.tray_by_id("main-tray") {
-                let _ = tray.set_icon(Some(shell::icon(view.color)));
-                let _ = tray.set_tooltip(Some(format!("DagdaTime · {}", view.label)));
+            let next = (view.label, view.color, app_name, paused, status.is_some());
+            if shown.as_ref() != Some(&next) {
+                let _ = status_item.set_text(view.label);
+                let _ = activity.set_text(&next.2);
+                let _ = resume.set_enabled(paused);
+                let _ = pause.set_enabled(status.is_some() && !paused);
+                let _ = pause15.set_enabled(status.is_some() && !paused);
+                let _ = pause60.set_enabled(status.is_some() && !paused);
+                if shown
+                    .as_ref()
+                    .is_none_or(|old| (old.0, old.1) != (view.label, view.color))
+                {
+                    if let Some(tray) = handle.tray_by_id("main-tray") {
+                        let _ = tray.set_icon(Some(shell::icon(view.color)));
+                        let _ = tray.set_tooltip(Some(format!("DagdaTime · {}", view.label)));
+                    }
+                }
+                shown = Some(next);
             }
             if tick.is_multiple_of(15) {
-                use chrono::{Datelike, TimeZone};
-                let now = chrono::Local::now();
-                if let Some(start) = chrono::Local
-                    .with_ymd_and_hms(now.year(), now.month(), now.day(), 0, 0, 0)
-                    .earliest()
-                {
-                    if let Ok(Value::Array(events)) = local::request(
-                        &format!(
-                            "/events?bucket=afk&from={}&to={}",
-                            start.timestamp_millis(),
-                            now.timestamp_millis()
-                        ),
-                        "GET",
-                        &Value::Null,
-                    ) {
-                        let milliseconds: i64 = events
-                            .iter()
-                            .filter(|event| event["data"]["status"] == "active")
-                            .map(|event| {
-                                (event["end_ts"]
-                                    .as_i64()
-                                    .unwrap_or(0)
-                                    .min(now.timestamp_millis())
-                                    - event["start_ts"]
-                                        .as_i64()
-                                        .unwrap_or(0)
-                                        .max(start.timestamp_millis()))
-                                .max(0)
-                            })
-                            .sum();
-                        let _ = total.set_text(format!(
-                            "Today's active time: {}h {}m",
-                            milliseconds / 3_600_000,
-                            milliseconds / 60_000 % 60
-                        ));
+                if let Some(milliseconds) = active_today(&handle) {
+                    let text = format!(
+                        "Today's active time: {}h {}m",
+                        milliseconds / 3_600_000,
+                        milliseconds / 60_000 % 60
+                    );
+                    if text != shown_total {
+                        let _ = total.set_text(&text);
+                        shown_total = text;
                     }
                 }
             }
@@ -310,6 +360,7 @@ fn main() {
                 if window.app_handle().tray_by_id("main-tray").is_some() {
                     api.prevent_close();
                     let _ = window.hide();
+                    let _ = window.app_handle().emit("window-visibility", false);
                 }
             }
         })

@@ -244,3 +244,40 @@ system-theme notifications on Windows and macOS. On Linux, read the XDG portal's
 appearance color-scheme over the existing session D-Bus connection and poll
 while System is selected, because Linux theme detection is disabled with Iced's
 default features off. Fall back to Light when the portal has no preference.
+
+## 2026-10-13 — Performance pass: storage I/O, day query, idle UI
+
+Measured with the same SQLite engine (Python sqlite3) on the real schema:
+
+- **Tracking writes.** Each one-second tick ran up to four separate immediate
+  transactions in rollback-journal mode with `synchronous=FULL`: ~54 KiB written
+  and several fsyncs per second (~4.4 GiB per day of tracking). The database now
+  uses WAL with `synchronous=NORMAL` (durable across application crashes; a power
+  loss can drop the last commits) and the tracker writes a whole tick through one
+  `Storage::batch()` transaction: ~5 KiB per tick, about 10x less, and a tick is
+  now atomic. A further step, if needed, is flushing unchanged extensions less
+  often than every second.
+- **Day query.** `/events` combined `(?1 IS NULL OR bucket=?1)` with only an
+  upper bound on `start_ts`, so SQLite scanned the whole history: 60–100 ms per
+  request on a year of data (~1M events), growing linearly, while holding the
+  storage mutex the tracker needs. Because events within a bucket never overlap
+  (heartbeats are nondecreasing; a new event starts at or after the previous end),
+  the query seeks to the last event starting at or before `from` and range-scans
+  `idx_events_bucket_start` from there; buckets are enumerated with index skips.
+  Same rows, 0.1–7 ms regardless of history size, no migration. **Any importer
+  (M7) must preserve the non-overlap invariant**, or add an `end_ts` index instead.
+- **Desktop shell.** The tray thread read its own process over loopback HTTP every
+  second, building a new reqwest blocking client (a thread plus runtime) and
+  re-reading the token file each time, and reset the tray icon every second
+  (a PNG file write per second on Linux indicators). It now reads the embedded
+  service in-process, and only touches menu items and the icon when what they show
+  changes. HTTP requests from the UI reuse one client and a cached token, re-read
+  once on 401. The tray shows the executable's basename, not its full path.
+- **Frontend.** Status (1 s) and day data (10 s) were polled even while the window
+  sat hidden in the tray, and past days were re-fetched forever. Polling now stops
+  while the window is hidden (Page Visibility plus a `window-visibility` event from
+  the shell, since not every WebView reports hiding), refreshes once when shown,
+  and only today's data is re-polled. Identical poll results no longer replace
+  state, so tracks and the canvas are not rebuilt every 10 s. The Day view is
+  memoized against the per-second status refresh, its totals are memoized, and
+  application icons for a summary table are fetched in one native call.

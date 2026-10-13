@@ -52,6 +52,13 @@ impl Storage {
     fn initialize(mut connection: Connection) -> Result<Self, StorageError> {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", true)?;
+        // The tracker writes every second. WAL appends to a log instead of rewriting
+        // pages through a rollback journal, and NORMAL syncs at checkpoints rather
+        // than on every commit: still crash-safe for the application, ~10x less I/O.
+        // In-memory databases report "memory" and keep working unchanged.
+        connection
+            .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i64 = transaction.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         match version {
@@ -77,50 +84,96 @@ impl Storage {
         ts: i64,
         pulsetime: i64,
     ) -> Result<Event, StorageError> {
-        if bucket.is_empty() || ts < 0 || pulsetime <= 0 {
-            return Err(StorageError::InvalidHeartbeat);
-        }
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let last = transaction
-            .query_row(
-                "SELECT id, bucket, start_ts, end_ts, data FROM events
-                 WHERE bucket = ?1 ORDER BY start_ts DESC, id DESC LIMIT 1",
-                [bucket],
-                event_from_row,
-            )
-            .optional()?;
-
-        if let Some(mut event) = last {
-            if ts < event.end_ts {
-                return Err(StorageError::OutOfOrderHeartbeat);
-            }
-            if event.data == *data && ts - event.end_ts < pulsetime {
-                transaction.execute(
-                    "UPDATE events SET end_ts = ?1 WHERE id = ?2",
-                    params![ts, event.id],
-                )?;
-                transaction.commit()?;
-                event.end_ts = ts;
-                return Ok(event);
-            }
-        }
-
-        transaction.execute(
-            "INSERT INTO events (bucket, start_ts, end_ts, data) VALUES (?1, ?2, ?2, ?3)",
-            params![bucket, ts, serde_json::to_string(data)?],
-        )?;
-        let event = Event {
-            id: transaction.last_insert_rowid(),
-            bucket: bucket.to_owned(),
-            start_ts: ts,
-            end_ts: ts,
-            data: data.clone(),
-        };
-        transaction.commit()?;
+        let batch = self.batch()?;
+        let event = batch.heartbeat(bucket, data, ts, pulsetime)?;
+        batch.commit()?;
         Ok(event)
     }
+
+    /// Start a group of writes that is committed atomically with one disk sync.
+    /// Dropping the batch without calling [`Batch::commit`] rolls it back.
+    pub fn batch(&mut self) -> Result<Batch<'_>, StorageError> {
+        Ok(Batch {
+            transaction: self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)?,
+        })
+    }
+}
+
+/// Several event writes in one immediate transaction. The tracker records a whole
+/// sampling tick through one batch instead of one transaction per write.
+pub struct Batch<'a> {
+    transaction: rusqlite::Transaction<'a>,
+}
+
+impl Batch<'_> {
+    /// Same semantics as [`Storage::heartbeat`], inside this batch.
+    pub fn heartbeat(
+        &self,
+        bucket: &str,
+        data: &Value,
+        ts: i64,
+        pulsetime: i64,
+    ) -> Result<Event, StorageError> {
+        heartbeat_in(&self.transaction, bucket, data, ts, pulsetime)
+    }
+
+    /// Same semantics as [`Storage::extend_last`], inside this batch.
+    pub fn extend_last(&self, bucket: &str, ts: i64, max_gap: i64) -> Result<(), StorageError> {
+        records::extend_last_in(&self.transaction, bucket, ts, max_gap)
+    }
+
+    pub fn commit(self) -> Result<(), StorageError> {
+        self.transaction.commit()?;
+        Ok(())
+    }
+}
+
+fn heartbeat_in(
+    transaction: &Connection,
+    bucket: &str,
+    data: &Value,
+    ts: i64,
+    pulsetime: i64,
+) -> Result<Event, StorageError> {
+    if bucket.is_empty() || ts < 0 || pulsetime <= 0 {
+        return Err(StorageError::InvalidHeartbeat);
+    }
+    let last = transaction
+        .query_row(
+            "SELECT id, bucket, start_ts, end_ts, data FROM events
+             WHERE bucket = ?1 ORDER BY start_ts DESC, id DESC LIMIT 1",
+            [bucket],
+            event_from_row,
+        )
+        .optional()?;
+
+    if let Some(mut event) = last {
+        if ts < event.end_ts {
+            return Err(StorageError::OutOfOrderHeartbeat);
+        }
+        if event.data == *data && ts - event.end_ts < pulsetime {
+            transaction.execute(
+                "UPDATE events SET end_ts = ?1 WHERE id = ?2",
+                params![ts, event.id],
+            )?;
+            event.end_ts = ts;
+            return Ok(event);
+        }
+    }
+
+    transaction.execute(
+        "INSERT INTO events (bucket, start_ts, end_ts, data) VALUES (?1, ?2, ?2, ?3)",
+        params![bucket, ts, serde_json::to_string(data)?],
+    )?;
+    Ok(Event {
+        id: transaction.last_insert_rowid(),
+        bucket: bucket.to_owned(),
+        start_ts: ts,
+        end_ts: ts,
+        data: data.clone(),
+    })
 }
 
 fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {

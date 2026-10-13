@@ -55,7 +55,27 @@ impl Storage {
         if from < 0 || to <= from {
             return Err(invalid("expected 0 <= from < to"));
         }
-        let mut statement = self.connection.prepare("SELECT id,bucket,start_ts,end_ts,data FROM events WHERE (?1 IS NULL OR bucket=?1) AND end_ts > ?2 AND start_ts < ?3 ORDER BY start_ts,id LIMIT 100001")?;
+        // Events in one bucket never overlap: heartbeats are nondecreasing and a new
+        // event starts at or after the previous end. So the only event that can begin
+        // before `from` and still reach into the range is the last one starting at or
+        // before `from`. Seeking to it keeps the scan on idx_events_bucket_start and
+        // proportional to the result, not to the whole history. Buckets are enumerated
+        // with index skips when no bucket is given. Importers (M7) must keep the
+        // invariant or this query needs an end_ts index instead.
+        let mut statement = self.connection.prepare_cached(
+            "WITH RECURSIVE buckets(name) AS (
+                SELECT ?1 WHERE ?1 IS NOT NULL
+                UNION ALL SELECT MIN(bucket) FROM events WHERE ?1 IS NULL
+                UNION ALL SELECT (SELECT MIN(bucket) FROM events WHERE bucket > buckets.name)
+                    FROM buckets WHERE ?1 IS NULL AND buckets.name IS NOT NULL
+            )
+            SELECT e.id, e.bucket, e.start_ts, e.end_ts, e.data
+            FROM buckets JOIN events e ON e.bucket = buckets.name
+                AND e.start_ts >= COALESCE((SELECT MAX(p.start_ts) FROM events p
+                    WHERE p.bucket = buckets.name AND p.start_ts <= ?2), ?2)
+                AND e.start_ts < ?3 AND e.end_ts > ?2
+            ORDER BY e.start_ts, e.id LIMIT 100001",
+        )?;
         let events = statement
             .query_map(params![bucket, from, to], event_from_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -67,12 +87,9 @@ impl Storage {
 
     /// Close a sampled interval only across a short, continuously observed gap.
     pub fn extend_last(&mut self, bucket: &str, ts: i64, max_gap: i64) -> Result<(), StorageError> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute("UPDATE events SET end_ts=?1 WHERE id=(SELECT id FROM events WHERE bucket=?2 ORDER BY start_ts DESC,id DESC LIMIT 1) AND ?1 >= end_ts AND ?1-end_ts < ?3", params![ts,bucket,max_gap])?;
-        transaction.commit()?;
-        Ok(())
+        let batch = self.batch()?;
+        batch.extend_last(bucket, ts, max_gap)?;
+        batch.commit()
     }
 
     pub fn list(&self, collection: Collection) -> Result<Vec<Value>, StorageError> {
@@ -251,4 +268,16 @@ impl Storage {
             [id],
         )? > 0)
     }
+}
+
+pub(crate) fn extend_last_in(
+    connection: &Connection,
+    bucket: &str,
+    ts: i64,
+    max_gap: i64,
+) -> Result<(), StorageError> {
+    connection
+        .prepare_cached("UPDATE events SET end_ts=?1 WHERE id=(SELECT id FROM events WHERE bucket=?2 ORDER BY start_ts DESC,id DESC LIMIT 1) AND ?1 >= end_ts AND ?1-end_ts < ?3")?
+        .execute(params![ts, bucket, max_gap])?;
+    Ok(())
 }

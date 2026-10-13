@@ -151,14 +151,16 @@ impl Tracker {
             control.status.paused_until = None;
         }
         if control.paused || expired || control.pause_generation != self.pause_generation {
-            let mut storage = self.shared.storage.lock().unwrap();
-            if self.last_tick.is_some() {
+            if self.last_tick.is_some() && (self.had_window || self.had_idle) {
+                let mut storage = self.shared.storage.lock().unwrap();
+                let batch = storage.batch()?;
                 if self.had_window {
-                    storage.extend_last("window", control.pause_started, 3_000)?;
+                    batch.extend_last("window", control.pause_started, 3_000)?;
                 }
                 if self.had_idle {
-                    storage.extend_last("afk", control.pause_started, 3_000)?;
+                    batch.extend_last("afk", control.pause_started, 3_000)?;
                 }
+                batch.commit()?;
             }
             self.last_tick = None;
             self.had_window = false;
@@ -186,16 +188,18 @@ impl Tracker {
         control.status.idle_seconds = idle.as_ref().ok().copied();
         control.status.updated_ts = now;
         control.status.error = None;
+        // One transaction per tick: one disk sync instead of one per write.
         let mut storage = self.shared.storage.lock().unwrap();
+        let batch = storage.batch()?;
         if self
             .last_tick
             .is_some_and(|last| now >= last && now - last < 3_000)
         {
             if self.had_window {
-                storage.extend_last("window", now, 3_000)?;
+                batch.extend_last("window", now, 3_000)?;
             }
             if self.had_idle {
-                storage.extend_last("afk", now, 3_000)?;
+                batch.extend_last("afk", now, 3_000)?;
             }
         }
         let pulse = if self.last_tick.is_none() { 1 } else { 3_000 };
@@ -204,7 +208,7 @@ impl Tracker {
             .as_ref()
             .is_ok_and(|seconds| *seconds > self.shared.idle_threshold);
         if idle.is_ok() {
-            storage.heartbeat(
+            batch.heartbeat(
                 "afk",
                 &json!({"status": if away { "away" } else { "active" }}),
                 now,
@@ -214,10 +218,12 @@ impl Tracker {
         self.had_window = false;
         if !away && idle.is_ok() {
             if let Ok(Some(window)) = &window {
-                storage.heartbeat("window", &serde_json::to_value(window).unwrap(), now, pulse)?;
+                batch.heartbeat("window", &serde_json::to_value(window).unwrap(), now, pulse)?;
                 self.had_window = true;
             }
         }
+        batch.commit()?;
+        drop(storage);
         control.status.state = if window.is_err() || idle.is_err() {
             "error"
         } else if away {

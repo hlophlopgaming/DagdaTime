@@ -3,6 +3,7 @@ import {invoke,request,localDate,shiftDate} from './client.ts';
 import {statusView} from './shell.ts';
 import type {Status} from './shell.ts';
 import Day from './Day.tsx';
+import {usePolling} from './polling.ts';
 
 const screens=['Day','Week','Reports','Tags','Rules','Settings'];
 const icons=['◷','▦','▤','◇','⌁','⚙'];
@@ -24,14 +25,15 @@ export default function App() {
     const errors=window.__TAURI__?.event?.listen('action-error',event=>setMessage(String(event.payload)));
     return()=>{settings?.then(stop=>stop());errors?.then(stop=>stop());};
   },[]);
+  const alive=useRef(true);
+  const refresh=()=>request<Status>('/status').then(value=>{if(alive.current){setStatus(value);setMessage('');}}).catch(error=>{if(alive.current){setStatus(null);setMessage(String(error));}});
   useEffect(()=>{
-    let alive=true;
-    const refresh=()=>request<Status>('/status').then(value=>{if(alive){setStatus(value);setMessage('');}}).catch(error=>{if(alive){setStatus(null);setMessage(String(error));}});
+    alive.current=true;
     refresh();
-    const timer=setInterval(refresh,1000);
     invoke('frontend_ready').catch(()=>{});
-    return()=>{alive=false;clearInterval(timer);};
+    return()=>{alive.current=false;};
   },[]);
+  usePolling(refresh,1000);
   useEffect(()=>{
     const keyboard=(event:KeyboardEvent)=>{
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'){event.preventDefault();searchRef.current?.focus();return;}
@@ -69,7 +71,7 @@ export default function App() {
           <article className="panel"><h2>Status & permissions</h2><p>Live status of the background service and activity collectors.</p>{status?.backends.map(backend=><div className="backend" key={backend.name}><div><strong>{backend.name==='window'?'Active window':'Idle detection'}</strong><span className={`badge ${backend.state}`}>{backend.state.replaceAll('_',' ')}</span></div>{backend.error&&<p>{backend.error}</p>}</div>)}{!status&&<p className="warning">{message||'Background service unavailable'}</p>}</article>
           <article className="panel"><h2>Tracking</h2><dl><dt>Current state</dt><dd>{view.label}</dd><dt>Application</dt><dd>{status?.current_window?.app||'—'}</dd><dt>Idle time</dt><dd>{status?.idle_seconds!=null?`${status.idle_seconds} seconds`:'Unavailable'}</dd><dt>Data</dt><dd>Local SQLite database</dd></dl><p>Closing the window keeps recording in the background. Use Quit in the tray to stop DagdaTime.</p></article>
           <article className="panel"><h2>Data folder</h2><p>Your activity database stays on this computer.</p><p>{directory?.current||'Default system application data folder'}</p><button onClick={chooseFolder}>Choose folder</button>{directory?.pending&&<p>Next launch: {directory.pending}. Restart DagdaTime to use this folder. Existing history stays in the current folder.</p>}</article>
-        </div>:screen==='Day'?<Day date={date} search={search} status={status}/>:<article className="panel empty"><h2>{screen} is coming soon</h2><p>Your activity is kept locally while this view is being built.</p><button onClick={()=>setScreen('Day')}>Back to day</button></article>}
+        </div>:screen==='Day'?<Day date={date} search={search} online={!!status} started={status?.started_ts}/>:<article className="panel empty"><h2>{screen} is coming soon</h2><p>Your activity is kept locally while this view is being built.</p><button onClick={()=>setScreen('Day')}>Back to day</button></article>}
       </section>
       <footer><span><i className={`footer-dot ${view.state}`}/>{view.label}</span><span>DagdaTime · Private by design</span></footer>
     </main>

@@ -1,6 +1,6 @@
-import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
-import type {Status} from './shell.ts';
+import {memo,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {request} from './client.ts';
+import {usePolling,fingerprint} from './polling.ts';
 import AppIcon from './AppIcon.tsx';
 import {dayBounds,tracks as buildTracks,summarize,unionDuration,intersectionDuration,clip,pixelRange,zoomView,continuousSpan,fixture,duration,timeLabel} from './timeline.ts';
 import type {Dataset,Range,Segment,Track,ActivityEvent,Tag,TagRange} from './timeline.ts';
@@ -85,34 +85,53 @@ function Timeline({all,day,selection,onSelect,highlight}:{all:Track[];day:Range;
   </article>;
 }
 
-export default function Day({date,search,status}:{date:string;search:string;status:Status|null}){
+// Memoized: App re-renders every second with a fresh status; the day view only needs
+// to know whether the service is online and when it started.
+export default memo(function Day({date,search,online,started}:{date:string;search:string;online:boolean;started?:number}){
   const [data,setData]=useState<Dataset>(empty),[demo,setDemo]=useState(false),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   const [selection,setSelection]=useState<Range|null>(null),[tab,setTab]=useState('Tags'),[highlight,setHighlight]=useState<string|null>(null),[limit,setLimit]=useState(50);
   const day=useMemo(()=>dayBounds(date),[date]);
   useEffect(()=>{setSelection(null);setHighlight(null);setData(empty);},[date]);
+  const loaded=useRef<{key:string;hash:number}|null>(null),generation=useRef(0);
+  function load(){
+    const key=`${day.start}-${day.end}`,current=++generation.current;
+    return Promise.all([request<ActivityEvent[]>(`/events?from=${day.start}&to=${day.end}`),request<Tag[]>('/tags'),request<TagRange[]>('/tag_ranges')]).then(([events,tags,ranges])=>{
+      if(current!==generation.current)return;
+      // Skip identical polls: a new object would rebuild every track and redraw the canvas.
+      const hash=fingerprint(events,tags,ranges);
+      if(loaded.current?.key!==key||loaded.current.hash!==hash){loaded.current={key,hash};setData({events,tags,ranges});}
+      setError('');setLoading(false);
+    }).catch(reason=>{if(current===generation.current){setError(String(reason));setLoading(false);}});
+  }
   useEffect(()=>{
-    if(demo){setData(fixture(date));setError('');setLoading(false);return;}
-    let alive=true;setLoading(true);
-    const load=()=>Promise.all([request<ActivityEvent[]>(`/events?from=${day.start}&to=${day.end}`),request<Tag[]>('/tags'),request<TagRange[]>('/tag_ranges')]).then(([events,tags,ranges])=>{if(alive){setData({events,tags,ranges});setError('');setLoading(false);}}).catch(reason=>{if(alive){setError(String(reason));setLoading(false);}});
-    load();const timer=setInterval(load,10_000);return()=>{alive=false;clearInterval(timer);};
+    loaded.current=null;
+    if(demo){generation.current++;setData(fixture(date));setError('');setLoading(false);return;}
+    setLoading(true);load();
+    return()=>{generation.current++;};
   },[date,demo,day.start,day.end]);
+  // Only today's data still changes; past days are loaded once.
+  const live=!demo&&day.start<=Date.now()&&Date.now()<day.end;
+  usePolling(()=>{load();},10_000,live);
   const all=useMemo(()=>buildTracks(data,day),[data,day]);
   const filtered=useMemo(()=>search.trim()?all.map(track=>({...track,segments:track.segments.filter(segment=>`${segment.label} ${segment.detail}`.toLowerCase().includes(search.toLowerCase()))})):all,[all,search]);
   const range=selection??day;
   const selected=filtered.find(track=>track.name===tab)!;
   const rows=useMemo(()=>summarize(selected.segments,range),[selected,range]);
-  const observed=all[1].segments.filter(segment=>segment.key==='active'||segment.key==='away');
-  const taggedSegments=all[0].segments.filter(segment=>segment.key!=='untagged');
   const summaryRows=rows;
-  const active=unionDuration(all[1].segments.filter(segment=>segment.key==='active'),day),away=unionDuration(all[1].segments.filter(segment=>segment.key==='away'),day),tagged=unionDuration(taggedSegments,day);
+  const {active,away,tagged,untagged}=useMemo(()=>{
+    const observed=all[1].segments.filter(segment=>segment.key==='active'||segment.key==='away');
+    const taggedSegments=all[0].segments.filter(segment=>segment.key!=='untagged');
+    return {active:unionDuration(all[1].segments.filter(segment=>segment.key==='active'),day),away:unionDuration(all[1].segments.filter(segment=>segment.key==='away'),day),tagged:unionDuration(taggedSegments,day),
+      untagged:Math.max(0,unionDuration(observed,day)-intersectionDuration(observed,taggedSegments,day))};
+  },[all,day]);
   function select(value:Range|null){setSelection(value);setHighlight(null);setLimit(50);}
   function toggleDemo(){setDemo(value=>!value);setSelection(null);setHighlight(null);setData(empty);}
   return <div className="day-view">
-    <div className="day-metrics"><div><span>ACTIVE TIME</span><strong>{duration(active)}</strong></div><div><span>AWAY TIME</span><strong>{duration(away)}</strong></div><div><span>TAGGED TIME</span><strong>{duration(tagged)}</strong></div><div><span>UNTAGGED ACTIVITY</span><strong>{duration(Math.max(0,unionDuration(observed,day)-intersectionDuration(observed,taggedSegments,day)))}</strong></div><button className="demo-button" onClick={toggleDemo}>{demo?'Return to live data':'View demo'}</button></div>
+    <div className="day-metrics"><div><span>ACTIVE TIME</span><strong>{duration(active)}</strong></div><div><span>AWAY TIME</span><strong>{duration(away)}</strong></div><div><span>TAGGED TIME</span><strong>{duration(tagged)}</strong></div><div><span>UNTAGGED ACTIVITY</span><strong>{duration(untagged)}</strong></div><button className="demo-button" onClick={toggleDemo}>{demo?'Return to live data':'View demo'}</button></div>
     {demo&&<div className="preview-label">Preview · 5,000 generated events<span>Sample data is never saved or mixed with your activity.</span></div>}
     {error&&!demo&&<div className="data-note">Activity data is unavailable. {error}</div>}
     <Timeline key={date} all={filtered} day={day} selection={selection} onSelect={select} highlight={highlight}/>
-    {!data.events.length&&!data.ranges.length&&<div className="empty-day">{loading?'Loading your activity…':status?`No activity for this day yet. ${status.started_ts?`Tracking started at ${timeLabel(status.started_ts)}.`:''}`:'Start tracking to see your day, or explore the demo.'}</div>}
+    {!data.events.length&&!data.ranges.length&&<div className="empty-day">{loading?'Loading your activity…':online?`No activity for this day yet. ${started?`Tracking started at ${timeLabel(started)}.`:''}`:'Start tracking to see your day, or explore the demo.'}</div>}
     <article className="panel summary-panel"><div className="selection-bar"><div><span className="selection-icon">⌗</span><strong data-testid="selection-caption">{selection?`Selection ${timeLabel(selection.start)}–${timeLabel(selection.end)} · ${duration(selection.end-selection.start)}`:'Whole day'}</strong>{selection&&<button className="clear-selection" onClick={()=>select(null)}>Clear selection</button>}</div><button disabled title="Time tagging is coming soon">Tag selection ↵</button></div>
       <div className="summary-header"><div role="tablist" aria-label="Selection summary">{['Tags','Applications','Documents'].map(name=><button key={name} role="tab" aria-selected={tab===name} onClick={()=>{setTab(name);setHighlight(null);setLimit(50);}}>{name}</button>)}</div><span><b data-testid="summary-total">{duration(summaryRows.reduce((sum,row)=>sum+row.duration,0))}</b> observed in this view</span></div>
       <table className="summary-table"><thead><tr><th>{tab==='Tags'?'Project / tag':tab==='Applications'?'Application':'Document / URL'}</th><th>Duration</th><th>Share of time range</th><th aria-label="Proportion"/></tr></thead><tbody>{summaryRows.slice(0,limit).map(row=><tr key={row.key} onClick={()=>setHighlight(highlight===row.key?null:row.key)} className={highlight===row.key?'highlighted':''}><td><button onClick={event=>{event.stopPropagation();setHighlight(highlight===row.key?null:row.key);}}>{tab==='Applications'||tab==='Documents'?<AppIcon app={row.key.split('\0')[0]}/>:<i style={{background:row.color}}/>}{row.label}</button></td><td>{duration(row.duration)}</td><td>{row.share.toFixed(1)}%</td><td><div className="share-bar"><i style={{width:`${Math.min(100,row.share)}%`,background:row.color}}/></div></td></tr>)}</tbody></table>
@@ -121,4 +140,4 @@ export default function Day({date,search,status}:{date:string;search:string;stat
       <div className="summary-footnote">Durations use interval unions; overlaps within the same item are counted once. Shares refer to the selected time range.</div>
     </article>
   </div>;
-}
+});
