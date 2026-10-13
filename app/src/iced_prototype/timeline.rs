@@ -1,0 +1,439 @@
+use super::{
+    model::{self, Range, Track},
+    AppIcon, Message,
+};
+use iced::{
+    keyboard, mouse,
+    widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, Text},
+    Color, Event, Point, Rectangle, Renderer, Size, Theme,
+};
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    time::Instant,
+};
+
+pub const ROW: f32 = 45.0;
+pub const RULER: f32 = 32.0;
+#[derive(Default)]
+pub struct PaintStats {
+    pub frames: AtomicUsize,
+    pub max_build_us: AtomicU64,
+}
+#[derive(Default)]
+pub struct Interaction {
+    drag: Option<Drag>,
+    hover: Option<(usize, usize)>,
+    shift: bool,
+    last_click: Option<(Instant, Point, String)>,
+    double: bool,
+}
+struct Drag {
+    x: f32,
+    old: Option<Range>,
+    shift: bool,
+    moved: bool,
+}
+pub struct Timeline<'a> {
+    pub tracks: &'a [Track],
+    pub visible: &'a [usize],
+    pub view: Range,
+    pub selection: Option<Range>,
+    pub highlight: Option<&'a str>,
+    pub cache: &'a canvas::Cache,
+    pub stats: &'a PaintStats,
+    pub icons: &'a HashMap<String, AppIcon>,
+}
+pub fn should_draw_app_icon(track: usize, width: f32) -> bool {
+    track == 2 && width >= 28.0
+}
+impl Timeline<'_> {
+    fn hit(&self, point: Point, width: f32) -> Option<(usize, usize)> {
+        if point.y < RULER {
+            return None;
+        }
+        let row = ((point.y - RULER) / ROW) as usize;
+        let track = *self.visible.get(row)?;
+        let ts = model::pixel_range(self.view, width, point.x, point.x).start;
+        self.tracks[track]
+            .segments
+            .iter()
+            .rposition(|segment| segment.range.start <= ts && segment.range.end > ts)
+            .map(|index| (track, index))
+    }
+    fn extended(value: Range, old: Option<Range>) -> Range {
+        old.map(|old| Range::new(old.start.min(value.start), old.end.max(value.end)))
+            .unwrap_or(value)
+    }
+}
+impl canvas::Program<Message> for Timeline<'_> {
+    type State = Interaction;
+    fn update(
+        &self,
+        state: &mut Interaction,
+        event: &Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<Message>> {
+        if let Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
+            state.shift = modifiers.shift();
+            return None;
+        }
+        let inside = cursor.position_in(bounds);
+        let point = inside.or_else(|| {
+            state
+                .drag
+                .as_ref()
+                .and_then(|_| cursor.position())
+                .map(|p| {
+                    Point::new(
+                        (p.x - bounds.x).clamp(0.0, bounds.width),
+                        (p.y - bounds.y).clamp(0.0, bounds.height),
+                    )
+                })
+        });
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let point = inside?;
+                let hit = self.hit(point, bounds.width);
+                let key = hit
+                    .map(|(track, index)| self.tracks[track].segments[index].key.clone())
+                    .unwrap_or_default();
+                state.double = state
+                    .last_click
+                    .as_ref()
+                    .is_some_and(|(time, position, last)| {
+                        time.elapsed().as_millis() < 350
+                            && position.distance(point) < 6.0
+                            && *last == key
+                    });
+                state.last_click = Some((Instant::now(), point, key));
+                state.drag = Some(Drag {
+                    x: point.x,
+                    old: self.selection,
+                    shift: state.shift,
+                    moved: false,
+                });
+                if state.double {
+                    if let Some((track, index)) = hit {
+                        return Some(
+                            canvas::Action::publish(Message::Select(Some(model::continuous_span(
+                                &self.tracks[track].segments[index],
+                                &self.tracks[track].segments,
+                            ))))
+                            .and_capture(),
+                        );
+                    }
+                }
+                Some(canvas::Action::capture())
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if let Some(drag) = state.drag.as_mut() {
+                    let point = point?;
+                    if (point.x - drag.x).abs() > 3.0 {
+                        drag.moved = true;
+                        let range = model::pixel_range(self.view, bounds.width, drag.x, point.x);
+                        return Some(
+                            canvas::Action::publish(Message::Select(Some(Self::extended(
+                                range,
+                                if drag.shift { drag.old } else { None },
+                            ))))
+                            .and_capture(),
+                        );
+                    }
+                    return Some(canvas::Action::capture());
+                }
+                let hit = inside.and_then(|point| self.hit(point, bounds.width));
+                if hit != state.hover {
+                    state.hover = hit;
+                    return Some(canvas::Action::publish(Message::Hover(hit)));
+                }
+                None
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                let drag = state.drag.take()?;
+                if state.double || drag.moved {
+                    return Some(canvas::Action::capture());
+                }
+                let value = point
+                    .and_then(|p| self.hit(p, bounds.width))
+                    .map(|(track, index)| self.tracks[track].segments[index].range);
+                Some(
+                    canvas::Action::publish(Message::Select(value.map(|value| {
+                        Self::extended(value, if drag.shift { drag.old } else { None })
+                    })))
+                    .and_capture(),
+                )
+            }
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) if inside.is_some() => {
+                let (x, y) = match delta {
+                    mouse::ScrollDelta::Lines { x, y } | mouse::ScrollDelta::Pixels { x, y } => {
+                        (*x, *y)
+                    }
+                };
+                if state.shift || x.abs() > y.abs() {
+                    Some(
+                        canvas::Action::publish(Message::PanBy(if x + y > 0.0 {
+                            -0.2
+                        } else {
+                            0.2
+                        }))
+                        .and_capture(),
+                    )
+                } else {
+                    Some(
+                        canvas::Action::publish(Message::Zoom(if y > 0.0 { 0.8 } else { 1.25 }))
+                            .and_capture(),
+                    )
+                }
+            }
+            _ => None,
+        }
+    }
+    fn draw(
+        &self,
+        _state: &Interaction,
+        renderer: &Renderer,
+        theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let started = Instant::now();
+        let palette = theme.palette();
+        let dark = palette.background.r < 0.5;
+        let muted = if dark {
+            Color::from_rgb8(146, 165, 179)
+        } else {
+            Color::from_rgb8(136, 149, 164)
+        };
+        let line = if dark {
+            Color::from_rgb8(42, 57, 69)
+        } else {
+            Color::from_rgb8(237, 240, 243)
+        };
+        let x = |ts: i64| {
+            (ts - self.view.start) as f64 / self.view.duration().max(1) as f64 * bounds.width as f64
+        };
+        let base = self.cache.draw(renderer, bounds.size(), |frame| {
+            let span = self.view.duration();
+            let tick = if span > 12 * 3_600_000 {
+                2 * 3_600_000
+            } else if span > 4 * 3_600_000 {
+                3_600_000
+            } else if span > 3_600_000 {
+                30 * 60_000
+            } else if span > 15 * 60_000 {
+                5 * 60_000
+            } else {
+                60_000
+            };
+            let mut ts = self.view.start.div_euclid(tick) * tick;
+            while ts < self.view.end {
+                if ts >= self.view.start {
+                    let left = x(ts) as f32;
+                    frame.stroke(
+                        &Path::line(Point::new(left, RULER), Point::new(left, bounds.height)),
+                        Stroke::default().with_color(line),
+                    );
+                    frame.fill_text(Text {
+                        content: model::time_label(ts),
+                        position: Point::new(left + 5.0, 8.0),
+                        color: muted,
+                        size: 11.0.into(),
+                        ..Text::default()
+                    });
+                }
+                ts += tick;
+            }
+            for (row, track) in self.visible.iter().enumerate() {
+                let top = RULER + row as f32 * ROW;
+                frame.stroke(
+                    &Path::line(
+                        Point::new(0.0, top + ROW),
+                        Point::new(bounds.width, top + ROW),
+                    ),
+                    Stroke::default().with_color(line),
+                );
+                let mut previous = -1;
+                for segment in &self.tracks[*track].segments {
+                    let Some(range) = model::clip(segment.range, self.view) else {
+                        continue;
+                    };
+                    let left = x(range.start) as f32;
+                    let width = (x(range.end) - x(range.start)) as f32;
+                    if width < 1.0 && left.floor() as i32 == previous {
+                        continue;
+                    }
+                    previous = left.floor() as i32;
+                    let color = Color {
+                        r: segment.color[0],
+                        g: segment.color[1],
+                        b: segment.color[2],
+                        a: if self.highlight.is_some_and(|key| key != segment.key) {
+                            0.25
+                        } else {
+                            1.0
+                        },
+                    };
+                    frame.fill_rectangle(
+                        Point::new(left, top + 9.0),
+                        Size::new(width.max(1.0), ROW - 18.0),
+                        color,
+                    );
+                    if should_draw_app_icon(*track, width) {
+                        let bounds = Rectangle::new(
+                            Point::new(left + 4.0, top + 12.0),
+                            Size::new(21.0, 21.0),
+                        );
+                        match self.icons.get(&segment.key) {
+                            Some(AppIcon::Png(handle)) => frame.draw_image(
+                                bounds,
+                                iced::advanced::image::Image::new(handle.clone()),
+                            ),
+                            Some(AppIcon::Svg(handle)) => frame
+                                .draw_svg(bounds, iced::advanced::svg::Svg::new(handle.clone())),
+                            None => {}
+                        }
+                    }
+                    if width > 90.0 {
+                        frame.fill_text(Text {
+                            content: segment
+                                .label
+                                .chars()
+                                .take(
+                                    ((width
+                                        - if should_draw_app_icon(*track, width) {
+                                            27.0
+                                        } else {
+                                            0.0
+                                        })
+                                        / 7.0) as usize
+                                        - 2,
+                                )
+                                .collect(),
+                            position: Point::new(
+                                left + 6.0
+                                    + if should_draw_app_icon(*track, width) {
+                                        27.0
+                                    } else {
+                                        0.0
+                                    },
+                                top + 16.0,
+                            ),
+                            color: Color::WHITE,
+                            size: 11.0.into(),
+                            ..Text::default()
+                        });
+                    }
+                }
+            }
+        });
+        let mut overlay = Frame::new(renderer, bounds.size());
+        if let Some(range) = self
+            .selection
+            .and_then(|range| model::clip(range, self.view))
+        {
+            let left = x(range.start) as f32;
+            let width = (x(range.end) - x(range.start)) as f32;
+            overlay.fill_rectangle(
+                Point::new(left, RULER),
+                Size::new(width, bounds.height - RULER),
+                Color::from_rgba(0.15, 0.56, 0.52, 0.18),
+            );
+            overlay.stroke(
+                &Path::rectangle(
+                    Point::new(left, RULER),
+                    Size::new(width, bounds.height - RULER),
+                ),
+                Stroke::default().with_color(Color::from_rgb8(39, 143, 133)),
+            );
+        }
+        self.stats.frames.fetch_add(1, Ordering::Relaxed);
+        self.stats.max_build_us.fetch_max(
+            started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+            Ordering::Relaxed,
+        );
+        vec![base, overlay.into_geometry()]
+    }
+    fn mouse_interaction(
+        &self,
+        state: &Interaction,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> mouse::Interaction {
+        if state.drag.is_some() || cursor.is_over(bounds) {
+            mouse::Interaction::Crosshair
+        } else {
+            mouse::Interaction::default()
+        }
+    }
+}
+pub fn canvas<'a>(program: Timeline<'a>) -> Canvas<Timeline<'a>, Message> {
+    let height = RULER + program.visible.len() as f32 * ROW;
+    Canvas::new(program)
+        .width(iced::Length::Fill)
+        .height(height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::widget::canvas::Program;
+
+    #[test]
+    fn application_icons_only_appear_when_the_zoomed_block_can_fit_one() {
+        assert!(super::should_draw_app_icon(2, 28.0));
+        assert!(!super::should_draw_app_icon(2, 27.0));
+        assert!(!super::should_draw_app_icon(1, 100.0));
+    }
+
+    #[test]
+    fn native_canvas_drag_and_shift_extension_publish_correct_selection() {
+        let tracks = model::fixture(Range::new(0, 86_400_000));
+        let cache = canvas::Cache::new();
+        let stats = PaintStats::default();
+        let visible = [0, 1, 2, 3];
+        let program = Timeline {
+            tracks: &tracks,
+            visible: &visible,
+            view: Range::new(0, 86_400_000),
+            selection: Some(Range::new(8 * 3_600_000, 9 * 3_600_000)),
+            highlight: None,
+            cache: &cache,
+            stats: &stats,
+            icons: &HashMap::new(),
+        };
+        let bounds = Rectangle::new(Point::ORIGIN, Size::new(240.0, 212.0));
+        let mut state = Interaction::default();
+        program.update(
+            &mut state,
+            &Event::Keyboard(keyboard::Event::ModifiersChanged(
+                keyboard::Modifiers::SHIFT,
+            )),
+            bounds,
+            mouse::Cursor::Available(Point::new(100.0, 140.0)),
+        );
+        program.update(
+            &mut state,
+            &Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            bounds,
+            mouse::Cursor::Available(Point::new(100.0, 140.0)),
+        );
+        let action = program
+            .update(
+                &mut state,
+                &Event::Mouse(mouse::Event::CursorMoved {
+                    position: Point::new(110.0, 140.0),
+                }),
+                bounds,
+                mouse::Cursor::Available(Point::new(110.0, 140.0)),
+            )
+            .unwrap();
+        match action.into_inner().0 {
+            Some(Message::Select(Some(range))) => {
+                assert_eq!(range, Range::new(8 * 3_600_000, 11 * 3_600_000))
+            }
+            message => panic!("unexpected action {message:?}"),
+        }
+    }
+}

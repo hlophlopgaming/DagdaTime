@@ -31,7 +31,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev libxkbcommon-x11-dev librsvg2-dev patchelf xvfb
       - run: python -m unittest discover -s tests
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
@@ -54,6 +54,33 @@ jobs:
           $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP 'dagdatime-runtime'
           $process = Start-Process target/release/dagdatime-app.exe -ArgumentList '--runtime-test' -PassThru -Wait
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Launch Iced prototype (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/dagdatime-iced --smoke-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" xvfb-run -a target/release/dagdatime-iced --runtime-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" xvfb-run -a target/release/dagdatime-iced --lifecycle-test
+          mkdir -p "$RUNNER_TEMP/dagdatime-iced-autostart-home"
+          HOME="$RUNNER_TEMP/dagdatime-iced-autostart-home" target/release/dagdatime-iced --autostart-test
+      - name: Launch Iced prototype (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          target/release/dagdatime-iced --smoke-test
+          DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" target/release/dagdatime-iced --runtime-test
+          DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" target/release/dagdatime-iced --lifecycle-test
+          mkdir -p "$RUNNER_TEMP/dagdatime-iced-autostart-home/Library/LaunchAgents"
+          HOME="$RUNNER_TEMP/dagdatime-iced-autostart-home" target/release/dagdatime-iced --autostart-test
+          target/release/dagdatime-iced --autostart-test
+      - name: Launch Iced prototype (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($mode in @('--smoke-test','--runtime-test','--lifecycle-test','--autostart-test')) {
+            $name = $mode.TrimStart('-')
+            $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP "dagdatime-iced-$name"
+            $process = Start-Process target/release/dagdatime-iced.exe -ArgumentList $mode -PassThru -Wait
+            if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          }
       - name: Browser UI tests
         if: runner.os == 'Linux'
         run: |
@@ -69,3 +96,35 @@ jobs:
             target/release/dagdatime-app
             target/release/dagdatime-app.exe
           if-no-files-found: error
+
+      - name: Upload Iced prototype
+        uses: actions/upload-artifact@v4
+        with:
+          name: DagdaTime-Iced-${{ runner.os }}
+          path: |
+            target/release/dagdatime-iced
+            target/release/dagdatime-iced.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: check
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: DagdaTime-Iced-*
+          path: artifacts
+      - name: Package desktop binaries
+        run: |
+          mkdir -p release
+          tar -C artifacts/DagdaTime-Iced-Linux -czf release/DagdaTime-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz dagdatime-iced
+          tar -C artifacts/DagdaTime-Iced-macOS -czf release/DagdaTime-${GITHUB_REF_NAME}-macOS.tar.gz dagdatime-iced
+          cd artifacts/DagdaTime-Iced-Windows
+          zip "../../release/DagdaTime-${GITHUB_REF_NAME}-Windows-x86_64.zip" dagdatime-iced.exe
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --title "DagdaTime $GITHUB_REF_NAME" --generate-notes

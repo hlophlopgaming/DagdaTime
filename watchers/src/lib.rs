@@ -4,6 +4,9 @@
 pub struct WindowInfo {
     /// Executable path when accessible; legacy/platform identity otherwise.
     pub app: String,
+    /// Stable user-facing process/application name (window class or app name).
+    #[serde(default)]
+    pub app_name: String,
     pub title: String,
     pub pid: Option<u32>,
 }

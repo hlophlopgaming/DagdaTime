@@ -40,6 +40,9 @@ impl WindowWatcher for LinuxWatcher {
     }
 }
 pub(crate) fn process_identity(mut window: WindowInfo) -> WindowInfo {
+    if window.app_name.is_empty() {
+        window.app_name = window.app.clone();
+    }
     if let Some(executable) = window
         .pid
         .and_then(|pid| std::fs::read_link(format!("/proc/{pid}/exe")).ok())
@@ -76,6 +79,7 @@ impl BridgeState {
             } else {
                 Some(WindowInfo {
                     app: app.into(),
+                    app_name: app.into(),
                     title: title.into(),
                     pid: (pid != 0).then_some(pid),
                 })
@@ -244,6 +248,11 @@ pub(crate) fn focused_sway(tree: &Value) -> Option<WindowInfo> {
                 .or_else(|| tree["window_properties"]["class"].as_str())
                 .unwrap_or_default()
                 .into(),
+            app_name: tree["app_id"]
+                .as_str()
+                .or_else(|| tree["window_properties"]["class"].as_str())
+                .unwrap_or_default()
+                .into(),
             title: tree["name"].as_str().unwrap_or_default().into(),
             pid: tree["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()),
         });
@@ -266,6 +275,7 @@ pub(crate) fn hypr_window(value: &Value) -> Result<Option<WindowInfo>, WatcherEr
     }
     Ok(Some(WindowInfo {
         app: app.into(),
+        app_name: app.into(),
         title: value["title"].as_str().unwrap_or_default().into(),
         pid: value["pid"]
             .as_u64()

@@ -6,6 +6,7 @@ fn debug_output_contains_window_and_idle_in_one_json_line() {
     let watcher = MockWatcher::new(
         Some(WindowInfo {
             app: "editor".into(),
+            app_name: "Editor".into(),
             title: "файл\n\"draft\"".into(),
             pid: Some(12),
         }),
@@ -37,6 +38,7 @@ fn window_error_still_reports_idle_and_next_tick_recovers() {
         .contains("Accessibility"));
     watcher.window = Ok(Some(WindowInfo {
         app: "browser".into(),
+        app_name: "Browser".into(),
         title: "tab".into(),
         pid: None,
     }));

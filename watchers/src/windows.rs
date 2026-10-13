@@ -62,9 +62,13 @@ impl WindowWatcher for WindowsWatcher {
                 return Err(last_error());
             }
             let path = String::from_utf16_lossy(&executable[..size as usize]);
-            let app = path;
+            let app_name = std::path::Path::new(&path)
+                .file_stem()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
             Ok(Some(WindowInfo {
-                app,
+                app: path,
+                app_name,
                 title,
                 pid: Some(pid),
             }))

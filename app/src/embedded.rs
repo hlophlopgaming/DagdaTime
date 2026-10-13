@@ -24,6 +24,7 @@ impl Sources {
             Ok(Box::new(MockWatcher::new(
                 Some(WindowInfo {
                     app: "Runtime fixture".into(),
+                    app_name: "Runtime fixture".into(),
                     title: "Standalone application".into(),
                     pid: Some(std::process::id()),
                 }),
