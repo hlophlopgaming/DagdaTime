@@ -157,14 +157,18 @@ impl State {
     fn boot() -> (Self, Task<Message>) {
         let args: Vec<_> = std::env::args().collect();
         let launch = startup::LaunchOptions::parse(args.iter().map(String::as_str));
-        let smoke = args.iter().any(|arg| arg == "--smoke-test");
+        let smoke = cfg!(test) || args.iter().any(|arg| arg == "--smoke-test");
         let lifecycle = args.iter().any(|arg| arg == "--lifecycle-test");
         let runtime_test = lifecycle || args.iter().any(|arg| arg == "--runtime-test");
         let benchmark = args.iter().any(|arg| arg == "--benchmark");
         let date = Local::now().date_naive();
         let day = model::day_bounds(date);
         let stats = Arc::new(timeline::PaintStats::default());
-        let preview_apps = crate::icons::preview_application_processes();
+        let preview_apps = if cfg!(test) {
+            Vec::new()
+        } else {
+            crate::icons::preview_application_processes()
+        };
         let icons = decode_icons(crate::icons::application_icons(preview_apps.clone()));
         let tray = if smoke || (runtime_test && !lifecycle) {
             None
@@ -1358,4 +1362,72 @@ pub fn run() -> iced::Result {
         std::process::exit(1);
     }
     result
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+
+    #[test]
+    fn stale_load_cannot_replace_a_different_day_or_finish_its_load() {
+        let (mut state, _) = State::boot();
+        state.demo = false;
+        state.invalidate_load();
+        let old_generation = state.load_generation;
+        let old_tracks = state.all.clone();
+        state.change_date(state.date.succ_opt().unwrap());
+        state.loading = true;
+        let _ = state.update(Message::Loaded(
+            old_generation,
+            Ok(Snapshot {
+                tracks: old_tracks,
+                icons: HashMap::new(),
+            }),
+        ));
+        assert!(state.all.iter().all(|track| track.segments.is_empty()));
+        assert!(
+            state.loading,
+            "an old result must not clear the new load's pending flag"
+        );
+        assert_eq!(state.loaded_day, None);
+    }
+
+    #[test]
+    fn stale_live_load_cannot_replace_demo_data() {
+        let (mut state, _) = State::boot();
+        state.demo = false;
+        let old_generation = state.load_generation;
+        let _ = state.update(Message::Demo);
+        let preview = state.all.clone();
+        let _ = state.update(Message::Loaded(
+            old_generation,
+            Ok(Snapshot {
+                tracks: model::empty_tracks(),
+                icons: HashMap::new(),
+            }),
+        ));
+        assert!(state.demo);
+        assert!(
+            state.all == preview,
+            "a stale live result must not replace the preview"
+        );
+        assert_eq!(state.loaded_day, None);
+    }
+
+    #[test]
+    fn current_load_updates_history_and_finishes_loading() {
+        let (mut state, _) = State::boot();
+        state.demo = false;
+        state.loading = true;
+        let _ = state.update(Message::Loaded(
+            state.load_generation,
+            Ok(Snapshot {
+                tracks: model::empty_tracks(),
+                icons: HashMap::new(),
+            }),
+        ));
+        assert!(!state.loading);
+        assert_eq!(state.loaded_day, Some(state.day));
+        assert!(state.all.iter().all(|track| track.segments.is_empty()));
+    }
 }
