@@ -25,9 +25,10 @@ Quit from the tray to stop recording. Closing only the window keeps the tray
 app and recording alive.
 
 On Linux, the executable uses the host's GTK tray integration and builds both
-X11 and Wayland window backends. Other systems use their native window and tray
-integration. The application UI is one executable and does not start a tracker
-helper.
+X11 and Wayland window backends. Install GTK 3 and libxkbcommon-x11 runtime
+libraries if your distribution does not already provide them. Other systems
+use their native window and tray integration. The application UI is one
+executable and does not start a tracker helper.
 
 ## Current memory sample
 
