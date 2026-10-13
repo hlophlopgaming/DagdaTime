@@ -16,7 +16,7 @@ impl Range {
         (self.end - self.start).max(0)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Segment {
     pub range: Range,
     pub key: String,
@@ -39,7 +39,7 @@ impl Segment {
         }
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Track {
     pub name: &'static str,
     pub segments: Vec<Segment>,
