@@ -92,7 +92,7 @@ export default memo(function Day({date,search,online,started}:{date:string;searc
   const [selection,setSelection]=useState<Range|null>(null),[tab,setTab]=useState('Tags'),[highlight,setHighlight]=useState<string|null>(null),[limit,setLimit]=useState(50);
   const day=useMemo(()=>dayBounds(date),[date]);
   useEffect(()=>{setSelection(null);setHighlight(null);setData(empty);},[date]);
-  const loaded=useRef<{key:string;hash:number}|null>(null),generation=useRef(0);
+  const loaded=useRef<{key:string;hash:string}|null>(null),generation=useRef(0);
   function load(){
     const key=`${day.start}-${day.end}`,current=++generation.current;
     return Promise.all([request<ActivityEvent[]>(`/events?from=${day.start}&to=${day.end}`),request<Tag[]>('/tags'),request<TagRange[]>('/tag_ranges')]).then(([events,tags,ranges])=>{

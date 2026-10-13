@@ -281,3 +281,10 @@ Measured with the same SQLite engine (Python sqlite3) on the real schema:
   state, so tracks and the canvas are not rebuilt every 10 s. The Day view is
   memoized against the per-second status refresh, its totals are memoized, and
   application icons for a summary table are fetched in one native call.
+
+## 2026-10-14 — Full comparison of polled datasets
+
+Compare the serialized contents of event, tag and tag-range arrays before
+replacing frontend state. IDs and end times alone miss edits to existing tags,
+range starts, assignments and notes. An exact comparison also avoids hash
+collisions; this runs only on the ten-second history poll.

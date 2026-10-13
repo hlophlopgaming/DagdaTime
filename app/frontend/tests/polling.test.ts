@@ -15,3 +15,15 @@ test('visibility state can be toggled by the desktop shell',()=>{
   setHidden(true);assert.equal(isHidden(),true);
   setHidden(false);assert.equal(isHidden(),false);
 });
+
+test('fingerprint detects edits to existing tags and tag ranges',()=>{
+  const tag={id:1,name:'Old',color:'#111111',parent_id:null};
+  const range={id:2,tag_id:1,start_ts:100,end_ts:200,note:'Old'};
+  const original=fingerprint([tag],[range]);
+  for(const changed of [{...tag,name:'New'},{...tag,color:'#222222'},{...tag,parent_id:3}]){
+    assert.notEqual(original,fingerprint([changed],[range]));
+  }
+  for(const changed of [{...range,start_ts:120},{...range,tag_id:3},{...range,note:'New'}]){
+    assert.notEqual(original,fingerprint([tag],[changed]));
+  }
+});

@@ -24,9 +24,7 @@ export function usePolling(load:()=>void,interval:number,enabled=true){
   },[interval,enabled]);
 }
 
-/** Cheap change detector for polled data: ids and end times are what grows. */
-export function fingerprint(...lists:{id:number;end_ts?:number}[][]){
-  let hash=0;
-  for(const list of lists){hash=Math.imul(hash^list.length,16777619);for(const item of list)hash=Math.imul(hash^item.id^((item.end_ts??0)%2147483647),16777619);}
-  return hash;
+/** Exact comparison includes edits to titles, tag metadata and range boundaries. */
+export function fingerprint(...lists:unknown[][]){
+  return JSON.stringify(lists);
 }
