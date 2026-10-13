@@ -60,17 +60,22 @@ jobs:
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/dagdatime-iced --smoke-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" xvfb-run -a target/release/dagdatime-iced --runtime-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" xvfb-run -a target/release/dagdatime-iced --lifecycle-test
+          mkdir -p "$RUNNER_TEMP/dagdatime-iced-autostart-home"
+          HOME="$RUNNER_TEMP/dagdatime-iced-autostart-home" target/release/dagdatime-iced --autostart-test
       - name: Launch Iced prototype (macOS)
         if: runner.os == 'macOS'
         run: |
           target/release/dagdatime-iced --smoke-test
           DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" target/release/dagdatime-iced --runtime-test
           DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" target/release/dagdatime-iced --lifecycle-test
+          mkdir -p "$RUNNER_TEMP/dagdatime-iced-autostart-home/Library/LaunchAgents"
+          HOME="$RUNNER_TEMP/dagdatime-iced-autostart-home" target/release/dagdatime-iced --autostart-test
+          target/release/dagdatime-iced --autostart-test
       - name: Launch Iced prototype (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          foreach ($mode in @('--smoke-test','--runtime-test','--lifecycle-test')) {
+          foreach ($mode in @('--smoke-test','--runtime-test','--lifecycle-test','--autostart-test')) {
             $name = $mode.TrimStart('-')
             $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP "dagdatime-iced-$name"
             $process = Start-Process target/release/dagdatime-iced.exe -ArgumentList $mode -PassThru -Wait

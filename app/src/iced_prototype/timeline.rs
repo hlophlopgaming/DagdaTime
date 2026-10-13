@@ -1,6 +1,6 @@
 use super::{
     model::{self, Range, Track},
-    Message,
+    AppIcon, Message,
 };
 use iced::{
     keyboard, mouse,
@@ -8,6 +8,7 @@ use iced::{
     Color, Event, Point, Rectangle, Renderer, Size, Theme,
 };
 use std::{
+    collections::HashMap,
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     time::Instant,
 };
@@ -41,6 +42,10 @@ pub struct Timeline<'a> {
     pub highlight: Option<&'a str>,
     pub cache: &'a canvas::Cache,
     pub stats: &'a PaintStats,
+    pub icons: &'a HashMap<String, AppIcon>,
+}
+pub fn should_draw_app_icon(track: usize, width: f32) -> bool {
+    track == 2 && width >= 28.0
 }
 impl Timeline<'_> {
     fn hit(&self, point: Point, width: f32) -> Option<(usize, usize)> {
@@ -275,14 +280,46 @@ impl canvas::Program<Message> for Timeline<'_> {
                         Size::new(width.max(1.0), ROW - 18.0),
                         color,
                     );
+                    if should_draw_app_icon(*track, width) {
+                        let bounds = Rectangle::new(
+                            Point::new(left + 4.0, top + 12.0),
+                            Size::new(21.0, 21.0),
+                        );
+                        match self.icons.get(&segment.key) {
+                            Some(AppIcon::Png(handle)) => frame.draw_image(
+                                bounds,
+                                iced::advanced::image::Image::new(handle.clone()),
+                            ),
+                            Some(AppIcon::Svg(handle)) => frame
+                                .draw_svg(bounds, iced::advanced::svg::Svg::new(handle.clone())),
+                            None => {}
+                        }
+                    }
                     if width > 90.0 {
                         frame.fill_text(Text {
                             content: segment
                                 .label
                                 .chars()
-                                .take((width / 7.0) as usize - 2)
+                                .take(
+                                    ((width
+                                        - if should_draw_app_icon(*track, width) {
+                                            27.0
+                                        } else {
+                                            0.0
+                                        })
+                                        / 7.0) as usize
+                                        - 2,
+                                )
                                 .collect(),
-                            position: Point::new(left + 6.0, top + 16.0),
+                            position: Point::new(
+                                left + 6.0
+                                    + if should_draw_app_icon(*track, width) {
+                                        27.0
+                                    } else {
+                                        0.0
+                                    },
+                                top + 16.0,
+                            ),
                             color: Color::WHITE,
                             size: 11.0.into(),
                             ..Text::default()
@@ -342,6 +379,14 @@ pub fn canvas<'a>(program: Timeline<'a>) -> Canvas<Timeline<'a>, Message> {
 mod tests {
     use super::*;
     use iced::widget::canvas::Program;
+
+    #[test]
+    fn application_icons_only_appear_when_the_zoomed_block_can_fit_one() {
+        assert!(super::should_draw_app_icon(2, 28.0));
+        assert!(!super::should_draw_app_icon(2, 27.0));
+        assert!(!super::should_draw_app_icon(1, 100.0));
+    }
+
     #[test]
     fn native_canvas_drag_and_shift_extension_publish_correct_selection() {
         let tracks = model::fixture(Range::new(0, 86_400_000));
@@ -356,6 +401,7 @@ mod tests {
             highlight: None,
             cache: &cache,
             stats: &stats,
+            icons: &HashMap::new(),
         };
         let bounds = Rectangle::new(Point::ORIGIN, Size::new(240.0, 212.0));
         let mut state = Interaction::default();

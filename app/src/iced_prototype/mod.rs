@@ -1,6 +1,7 @@
 //! Native Iced experiment: M4 functionality and resource-use comparison.
 mod model;
 mod runtime;
+mod startup;
 mod timeline;
 mod tray;
 
@@ -17,6 +18,7 @@ use iced::{
 use model::{Range, Summary, Track};
 use runtime::{Runtime, Snapshot};
 use serde_json::Value;
+use startup::StartupProvider;
 use std::{
     collections::HashMap,
     sync::{
@@ -52,6 +54,7 @@ pub enum Message {
     More,
     Theme,
     Start,
+    AutoStart(bool),
     Demo,
     Pause(Option<i64>),
     Resume,
@@ -63,7 +66,7 @@ pub enum Message {
     Screenshot(window::Screenshot),
 }
 #[derive(Clone)]
-enum AppIcon {
+pub(super) enum AppIcon {
     Png(image::Handle),
     Svg(svg::Handle),
 }
@@ -112,10 +115,13 @@ struct State {
     snapshot_done: bool,
     closed_for_benchmark: bool,
     pending_dir: Option<String>,
+    autostart_enabled: bool,
+    autostart_error: String,
 }
 impl State {
     fn boot() -> (Self, Task<Message>) {
         let args: Vec<_> = std::env::args().collect();
+        let launch = startup::LaunchOptions::parse(args.iter().map(String::as_str));
         let smoke = args.iter().any(|arg| arg == "--smoke-test");
         let lifecycle = args.iter().any(|arg| arg == "--lifecycle-test");
         let runtime_test = lifecycle || args.iter().any(|arg| arg == "--runtime-test");
@@ -149,14 +155,14 @@ impl State {
             highlight: None,
             search: String::new(),
             screen: "Day",
-            tab: 0,
+            tab: 1,
             rows: Vec::new(),
             limit: 50,
             metrics: [0; 4],
             demo: true,
             tracks_menu: false,
-            theme: native_theme(false),
-            dark: false,
+            theme: native_theme(true),
+            dark: true,
             cache: widget::canvas::Cache::new(),
             stats,
             icons: HashMap::new(),
@@ -179,21 +185,26 @@ impl State {
             snapshot_done: false,
             closed_for_benchmark: false,
             pending_dir: None,
+            autostart_enabled: startup::SystemStartup::new()
+                .and_then(|startup| startup.is_enabled())
+                .unwrap_or(false),
+            autostart_error: String::new(),
         };
-        if runtime_test {
+        if runtime_test || launch.record_on_launch {
             state.start();
         }
         state.rebuild();
-        let task = state.open();
+        let task = state.open(!launch.hidden || state.tray.is_none());
         (state, task)
     }
-    fn open(&mut self) -> Task<Message> {
+    fn open(&mut self, visible: bool) -> Task<Message> {
         if let Some(id) = self.window {
             return window::gain_focus(id);
         }
         let (id, task) = window::open(window::Settings {
             size: iced::Size::new(1280.0, 820.0),
             min_size: Some(iced::Size::new(900.0, 600.0)),
+            visible,
             exit_on_close_request: false,
             ..window::Settings::default()
         });
@@ -310,12 +321,10 @@ impl State {
             Message::Tick => {
                 for event in tray::Tray::events() {
                     let message = match event.as_str() {
-                        "open" => {
-                            return self.open();
-                        }
+                        "open" => return self.open(true),
                         "settings" => {
                             self.screen = "Settings";
-                            return self.open();
+                            return self.open(true);
                         }
                         "start" => Message::Start,
                         "pause" => Message::Pause(None),
@@ -359,7 +368,7 @@ impl State {
                     if self.cycle_stage == 1 && recorded >= self.cycle_duration + 2_000 {
                         self.cycle_stage = 2;
                         self.cycle_frames = self.stats.frames.load(Ordering::Relaxed);
-                        return self.open();
+                        return self.open(true);
                     }
                     if self.cycle_stage == 2
                         && self.stats.frames.load(Ordering::Relaxed) > self.cycle_frames
@@ -578,6 +587,15 @@ impl State {
                 self.cache.clear();
             }
             Message::Start => self.start(),
+            Message::AutoStart(enabled) => match startup::SystemStartup::new()
+                .and_then(|mut provider| startup::set_enabled(&mut provider, enabled))
+            {
+                Ok(enabled) => {
+                    self.autostart_enabled = enabled;
+                    self.autostart_error.clear();
+                }
+                Err(error) => self.autostart_error = error,
+            },
             Message::Demo => {
                 self.demo = !self.demo;
                 if self.demo {
@@ -801,6 +819,7 @@ impl State {
             highlight: self.highlight.as_deref(),
             cache: &self.cache,
             stats: &self.stats,
+            icons: &self.icons,
         });
         let chart: Element<'_, Message> = if let Some(segment) = self
             .hover
@@ -818,6 +837,14 @@ impl State {
                 .size(12)
             ]
             .spacing(5);
+            let details: Element<'_, Message> = if let Some(app) = segment.app.as_deref() {
+                row![self.app_icon(app), details]
+                    .spacing(8)
+                    .align_y(Alignment::Center)
+                    .into()
+            } else {
+                details.into()
+            };
             tooltip(
                 plot,
                 container(details).padding(10),
@@ -964,11 +991,23 @@ impl State {
             .size(12)
         ]
         .spacing(12);
+        let autostart = column![
+            checkbox(self.autostart_enabled)
+                .label("Start DagdaTime when I log in")
+                .on_toggle(Message::AutoStart),
+            text("Starts activity tracking in the tray. Turn this off here to remove it from system startup.")
+                .size(12),
+            text(&self.autostart_error)
+                .size(12)
+                .color(Color::from_rgb8(200, 75, 75))
+        ]
+        .spacing(8);
         let resource=column![text("Iced experiment").size(22),text("Rust UI · tiny-skia software renderer · no WebKit").size(14),text(format!("Canvas draws: {} · max geometry build: {:.2} ms",self.stats.frames.load(Ordering::Relaxed),self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0)).size(13),text("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Switching themes, tray behavior and OS permissions need desktop verification before promoting this branch.").size(13)].spacing(12);
         scrollable(
             column![
                 container(backend).padding(16).style(panel),
                 container(folder).padding(16).style(panel),
+                container(autostart).padding(16).style(panel),
                 container(resource).padding(16).style(panel)
             ]
             .spacing(14),
@@ -1144,8 +1183,38 @@ fn panel(theme: &Theme) -> container::Style {
 }
 
 pub fn run() -> iced::Result {
-    let is_test = std::env::args()
-        .any(|arg| ["--smoke-test", "--runtime-test", "--lifecycle-test"].contains(&arg.as_str()));
+    let args: Vec<_> = std::env::args().collect();
+    let autostart_test = args.iter().any(|arg| arg == "--autostart-test");
+    let is_test = args.iter().any(|arg| {
+        [
+            "--smoke-test",
+            "--runtime-test",
+            "--lifecycle-test",
+            "--autostart-test",
+        ]
+        .contains(&arg.as_str())
+    });
+    if autostart_test {
+        let result = startup::SystemStartup::new().and_then(|mut provider| {
+            if !startup::set_enabled(&mut provider, true)?
+                || startup::set_enabled(&mut provider, false)?
+            {
+                return Err("system startup state did not follow enable/disable".into());
+            }
+            Ok(())
+        });
+        match result {
+            Ok(()) => {
+                TEST_PASSED.store(true, Ordering::Relaxed);
+                eprintln!("Iced system startup registration passed");
+                return Ok(());
+            }
+            Err(error) => {
+                eprintln!("Iced system startup registration failed: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
     #[cfg(target_os = "linux")]
     if let Err(error) = gtk::init() {
         eprintln!("GTK tray initialization: {error}");

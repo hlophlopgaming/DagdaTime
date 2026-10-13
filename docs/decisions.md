@@ -212,3 +212,13 @@ binary links the existing Rust watcher, tracking and SQLite code directly and
 does not launch a helper process. Its first screen is a clearly marked,
 non-persistent preview; recording starts only after an explicit user action.
 Promotion to `main` depends on the user's desktop and memory comparison.
+
+## 2026-10-13 — Iced login startup and app icon visibility
+
+Add opt-in per-user startup to the Iced experiment using the OS-native XDG
+Autostart, macOS LaunchAgent, or Windows Run registration. Launch with
+`--autostart --minimized`, which starts collection and keeps the window in the
+tray. Use the current executable path; users need to toggle the setting again
+after moving the binary. Keep preview app names synthetic, show real process
+icons in the Applications summary, and draw them in the Applications track
+only when a block is wide enough to read.
