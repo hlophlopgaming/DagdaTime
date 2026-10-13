@@ -31,6 +31,9 @@ fn wayland_debug_exits_with_explicit_error() {
         .arg("debug")
         .env("XDG_SESSION_TYPE", "wayland")
         .env("WAYLAND_DISPLAY", "wayland-0")
+        .env("XDG_CURRENT_DESKTOP", "UnknownCompositor")
+        .env_remove("SWAYSOCK")
+        .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
         .output()
         .unwrap();
     assert!(!output.status.success());

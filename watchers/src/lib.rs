@@ -56,7 +56,14 @@ impl IdleWatcher for MockWatcher {
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::X11Watcher as NativeWatcher;
+pub use wayland::LinuxWatcher as NativeWatcher;
+
+#[cfg(target_os = "linux")]
+mod wayland;
+#[cfg(target_os = "linux")]
+mod wayland_idle;
+#[cfg(all(test, target_os = "linux"))]
+mod wayland_tests;
 
 #[cfg(target_os = "windows")]
 mod windows;

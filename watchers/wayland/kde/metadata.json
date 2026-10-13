@@ -1,0 +1,1 @@
+{"KPlugin":{"Id":"dagdatime","Name":"DagdaTime Watcher","Description":"Send the focused window to the local DagdaTime daemon","Version":"0.1.0","License":"GPL-3.0"},"X-Plasma-API":"declarativescript","X-Plasma-MainScript":"code/main.qml","KPackageStructure":"KWin/Script"}

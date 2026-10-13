@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::Value;
 
 /// An activity interval. Timestamps are Unix milliseconds in UTC.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Event {
     pub id: i64,
     pub bucket: String,
@@ -29,6 +29,10 @@ pub enum StorageError {
     InvalidHeartbeat,
     #[error("heartbeat timestamp precedes the last event in its bucket")]
     OutOfOrderHeartbeat,
+    #[error("invalid record: {0}")]
+    InvalidRecord(String),
+    #[error("record not found")]
+    NotFound,
 }
 
 /// Local SQLite storage. Opening a database applies pending migrations atomically.
@@ -136,3 +140,9 @@ fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod crud_tests;
+
+mod records;
+pub use records::Collection;

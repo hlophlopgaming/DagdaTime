@@ -1,0 +1,1 @@
+{"uuid":"dagdatime@dagdatime.org","name":"DagdaTime Watcher","description":"Send focused window and idle time to the local DagdaTime daemon via the session bus.","shell-version":["45","46","47","48","49","50"],"version":1}

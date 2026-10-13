@@ -106,3 +106,29 @@ milestone M3.5 (app shell: navigation, status, tray, pause/resume, empty and
 error states) sits between M3 and M4, so the app is usable as a GUI before the
 timeline lands and no milestone numbers change. The UI framework choice moves
 from M4 to M3.5. M3 gains `GET /status` and pause/resume endpoints for the UI.
+
+## 2026-10-13 — M3 recording and API
+
+Use Axum on 127.0.0.1:56123, authenticated with a randomly generated local
+token (0600 on Unix). Browser Origin requests are denied; the desktop proxies
+requests through Tauri commands so the token never reaches frontend JavaScript.
+SQLite access is serialized in one shared connection. CRUD uses only a fixed
+collection whitelist with bound values, validates ranges and rejects tag cycles.
+No schema migration is needed: M1's tables already cover the M3 API.
+
+Poll native watchers on the daemon's main thread (required by macOS AppKit);
+the HTTP server runs on a separate Tokio runtime. Close intervals at the next
+observed transition, never across a gap of three seconds or more. Do not record
+application intervals while away. Pause generations break intervals even when
+pause/resume happens between polls; pause also stops native polling. Watcher and
+storage failures are visible in status. GUI and daemon remain separate processes.
+
+## 2026-10-13 — M3 Wayland backends
+
+GNOME and KDE use bundled, opt-in compositor bridges on session D-Bus. Reject
+stale samples after three seconds. GNOME includes Mutter's idle measurement;
+KDE, Sway and Hyprland use ext-idle-notify, preferring version 2 input-only idle.
+Sway and Hyprland window data comes from bounded, timed Unix-socket IPC queries.
+Unsupported compositors or missing components are errors in `/status`, not empty
+success. Idle history before process startup cannot be recovered from the idle
+protocol. Installation and compositor checks are in docs/wayland.md.

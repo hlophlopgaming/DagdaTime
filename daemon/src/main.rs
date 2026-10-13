@@ -15,8 +15,22 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<_> = std::env::args().skip(1).collect();
     if arguments == ["--help"] || arguments == ["-h"] {
-        println!("Usage: tracker debug\nPrint current window and idle seconds every second; Ctrl+C stops.");
+        println!("Usage: tracker debug | serve [--idle-threshold SECONDS]\nDebug prints window and idle each second. Serve records activity and exposes the authenticated localhost API.");
         return Ok(());
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "serve")
+    {
+        let threshold = match arguments.as_slice() {
+            [_] => 300,
+            [_, flag, value] if flag == "--idle-threshold" => value.parse::<u64>()?,
+            _ => return Err("Usage: tracker serve [--idle-threshold SECONDS]".into()),
+        };
+        if threshold == 0 || threshold > 86_400 {
+            return Err("idle threshold must be 1..86400 seconds".into());
+        }
+        return dagdatime_daemon::service::serve(threshold);
     }
     if arguments != ["debug"] {
         return Err("Usage: tracker debug".into());
