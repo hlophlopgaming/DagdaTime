@@ -1,0 +1,9 @@
+[package]
+name = "dagdatime-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dagdatime-core.workspace = true
+dagdatime-watchers.workspace = true
