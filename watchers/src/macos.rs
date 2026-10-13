@@ -76,7 +76,9 @@ impl WindowWatcher for MacWatcher {
             }
             let pid = app.processIdentifier();
             let app_name = app
-                .bundleIdentifier()
+                .executableURL()
+                .and_then(|url| url.path())
+                .or_else(|| app.bundleIdentifier())
                 .or_else(|| app.localizedName())
                 .map(|name| name.to_string())
                 .unwrap_or_default();

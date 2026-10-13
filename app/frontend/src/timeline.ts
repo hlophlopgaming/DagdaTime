@@ -47,6 +47,7 @@ export function zoomView(day:Range,view:Range,factor:number,anchor=(view.start+v
   const span=Math.min(day.end-day.start,Math.max(60_000,(view.end-view.start)*factor));
   const start=Math.max(day.start,Math.min(day.end-span,anchor-span/2));return {start,end:start+span};
 }
+export function applicationLabel(app:string){return app.split(/[\\/]/).filter(Boolean).at(-1)||app;}
 export function appColor(app:string){let hash=2166136261;for(const char of app){hash=Math.imul(hash^char.codePointAt(0)!,16777619);}return `hsl(${(hash>>>0)%360} 48% 56%)`;}
 function text(value:unknown,fallback=''){return typeof value==='string'?value:fallback;}
 export function tracks(data:Dataset,day:Range):Track[]{
@@ -59,7 +60,7 @@ export function tracks(data:Dataset,day:Range):Track[]{
     if(event.bucket==='afk'){const state=text(event.data.status,'unknown');add(1,range,state,state==='active'?'Active':state==='away'?'Away':'Unobserved',state==='active'?'#5ea794':state==='away'?'#d3af66':'#7c8793','Computer usage');}
     if(event.bucket==='window'){
       const app=text(event.data.app,'Unknown application'),title=text(event.data.title,'Untitled window');
-      add(2,range,app,app,appColor(app),title);
+      add(2,range,app,applicationLabel(app),appColor(app),title);
       add(3,range,`${app}\0${title}`,title,appColor(app),app);
     }
     if(event.bucket==='web'){const url=text(event.data.url),title=text(event.data.title,url||'Browser tab');add(3,range,url||title,title,'#769fc3',url);}

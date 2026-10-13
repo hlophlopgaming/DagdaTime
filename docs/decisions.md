@@ -186,3 +186,19 @@ entries, then resolves the icon through the installed theme. A native command
 returns bounded image data, caches lookups and accepts no arbitrary file paths.
 No icon downloads or schema changes. Unknown apps and other OSes currently use
 a stable initial badge; native Windows/macOS icon extraction remains pending.
+
+## 2026-10-13 — Process identity for grouping and icons
+
+At the user's request, newly recorded window `app` values identify the full
+executable path when available: Linux resolves /proc/PID/exe, Windows preserves
+QueryFullProcessImageNameW, macOS uses NSRunningApplication.executableURL.
+The Day summary groups by that path across PID/window-title changes, displays
+the basename, and keeps different executables with the same basename separate.
+Existing JSON events retain their original identity; there is no table/schema
+change or speculative rewrite of historical process identities.
+
+Linux icons now require an exact canonical executable match against a desktop
+entry's Exec. Name, StartupWMClass and icon-name guesses are removed. ELF
+executables generally have no embedded icon; the associated desktop entry is
+used only after its executable has been verified. Missing/inaccessible metadata
+uses the fallback badge. Native Windows/macOS icon extraction remains pending.

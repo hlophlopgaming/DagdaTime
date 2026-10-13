@@ -679,6 +679,7 @@ dependencies = [
  "freedesktop-icons",
  "reqwest",
  "serde_json",
+ "shlex",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

@@ -2,7 +2,7 @@
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct WindowInfo {
-    /// Executable name, bundle identifier, or X11 WM_CLASS.
+    /// Executable path when accessible; legacy/platform identity otherwise.
     pub app: String,
     pub title: String,
     pub pid: Option<u32>,

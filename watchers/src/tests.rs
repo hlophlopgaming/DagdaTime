@@ -183,3 +183,17 @@ fn x11_fixture_reads_window_title_pid_and_idle() {
         .unwrap();
     assert_eq!(watcher.active_window().unwrap(), None);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn process_identity_comes_from_pid_not_window_class() {
+    let window = super::wayland::process_identity(WindowInfo {
+        app: "Misleading window class".into(),
+        title: "Any title".into(),
+        pid: Some(std::process::id()),
+    });
+    assert_eq!(
+        std::path::PathBuf::from(window.app),
+        std::env::current_exe().unwrap()
+    );
+}

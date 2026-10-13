@@ -32,12 +32,23 @@ impl LinuxWatcher {
 }
 impl WindowWatcher for LinuxWatcher {
     fn active_window(&self) -> Result<Option<WindowInfo>, WatcherError> {
-        match self {
+        let window = match self {
             Self::X11(watcher) => watcher.active_window(),
             Self::Wayland(watcher) => watcher.active_window(),
-        }
+        }?;
+        Ok(window.map(process_identity))
     }
 }
+pub(crate) fn process_identity(mut window: WindowInfo) -> WindowInfo {
+    if let Some(executable) = window
+        .pid
+        .and_then(|pid| std::fs::read_link(format!("/proc/{pid}/exe")).ok())
+    {
+        window.app = executable.to_string_lossy().into_owned();
+    }
+    window
+}
+
 impl IdleWatcher for LinuxWatcher {
     fn idle_seconds(&self) -> Result<u64, WatcherError> {
         match self {

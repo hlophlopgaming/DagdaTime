@@ -44,3 +44,16 @@ test('double click selects the entire adjacent app span',()=>{
   const values=[{start:0,end:10},{start:10,end:20},{start:20,end:30}].map(value=>({...value,key:'editor',label:'Editor',color:'blue',detail:''}));
   assert.deepEqual(continuousSpan(values[2],values),{start:0,end:30});
 });
+
+test('application identity follows executable path across PID changes',()=>{
+  const data={events:[
+    {id:1,bucket:'window',start_ts:0,end_ts:10,data:{app:'/opt/one/editor',pid:11,title:'First'}},
+    {id:2,bucket:'window',start_ts:10,end_ts:20,data:{app:'/opt/one/editor',pid:22,title:'Second'}},
+    {id:3,bucket:'window',start_ts:20,end_ts:30,data:{app:'/opt/two/editor',pid:33,title:'Third'}},
+  ],tags:[],ranges:[]};
+  const rows=summarize(tracks(data,{start:0,end:30})[2].segments,{start:0,end:30});
+  assert.equal(rows.length,2);
+  assert.equal(rows[0].label,'editor');
+  assert.equal(rows[0].duration,20);
+  assert.notEqual(rows[0].key,rows[1].key);
+});

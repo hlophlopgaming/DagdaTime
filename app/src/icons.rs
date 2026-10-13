@@ -1,5 +1,18 @@
-#[cfg(any(target_os = "linux", test))]
-fn desktop_icon(text: &str, filename: &str, app: &str) -> Option<String> {
+#[cfg(target_os = "linux")]
+fn resolve_executable(command: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::Path::new(command);
+    if path.is_absolute() {
+        return path.canonicalize().ok();
+    }
+    if path.components().count() != 1 {
+        return None;
+    }
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .find_map(|folder| folder.join(command).canonicalize().ok())
+}
+#[cfg(target_os = "linux")]
+fn desktop_icon(text: &str, process: &std::path::Path) -> Option<String> {
+    let process = process.canonicalize().ok()?;
     let mut entry = false;
     let mut values = std::collections::HashMap::new();
     for line in text.lines() {
@@ -13,21 +26,17 @@ fn desktop_icon(text: &str, filename: &str, app: &str) -> Option<String> {
             }
         }
     }
-    let executable = values
-        .get("Exec")
-        .and_then(|value| value.split_whitespace().next())
-        .and_then(|value| std::path::Path::new(value).file_name())
-        .and_then(|value| value.to_str());
-    let identities = [
-        filename.strip_suffix(".desktop"),
-        values.get("StartupWMClass").copied(),
-        values.get("Name").copied(),
-        executable,
-    ];
-    identities
-        .into_iter()
-        .flatten()
-        .any(|value| value.eq_ignore_ascii_case(app))
+    let tokens = shlex::split(values.get("Exec")?)?;
+    let mut arguments = tokens.iter();
+    let mut executable = arguments.next()?;
+    if std::path::Path::new(executable)
+        .file_name()
+        .is_some_and(|name| name == "env")
+    {
+        executable =
+            arguments.find(|argument| !argument.contains('=') && !argument.starts_with('-'))?;
+    }
+    (resolve_executable(executable)? == process)
         .then(|| values.get("Icon").map(|value| (*value).to_owned()))
         .flatten()
 }
@@ -40,6 +49,10 @@ struct SystemIcons;
 impl IconProvider for SystemIcons {
     fn icon(&self, app: &str) -> Option<String> {
         use base64::Engine;
+        let process = std::path::Path::new(app);
+        if !process.is_absolute() {
+            return None;
+        }
         let mut directories = Vec::new();
         if let Some(home) = std::env::var_os("HOME") {
             let home = std::path::PathBuf::from(home);
@@ -66,9 +79,8 @@ impl IconProvider for SystemIcons {
                 if !filename.ends_with(".desktop") {
                     return None;
                 }
-                desktop_icon(&std::fs::read_to_string(entry.path()).ok()?, filename, app)
-            })
-            .unwrap_or_else(|| app.to_owned());
+                desktop_icon(&std::fs::read_to_string(entry.path()).ok()?, process)
+            })?;
         let path = if std::path::Path::new(&icon).is_absolute() {
             std::path::PathBuf::from(icon)
         } else {
@@ -114,7 +126,7 @@ pub fn application_icons(apps: Vec<String>) -> std::collections::HashMap<String,
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
     let mut result = std::collections::HashMap::new();
     for app in apps.into_iter().take(200) {
-        if app.is_empty() || app.len() > 256 || app.contains(['/', '\\']) {
+        if app.is_empty() || app.len() > 4096 || app.contains('\0') {
             continue;
         }
         if cache.len() > 1000 {
@@ -129,32 +141,39 @@ pub fn application_icons(apps: Vec<String>) -> std::collections::HashMap<String,
 }
 
 #[cfg(all(test, target_os = "linux"))]
+mod tests {
+    #[test]
+    fn desktop_icon_matches_exact_process_executable_not_labels() {
+        let exe = std::env::current_exe().unwrap();
+        let text=format!("[Desktop Entry]\nName=Wrong name\nStartupWMClass=WrongClass\nIcon=correct\nExec=\"{}\" %u\n[Desktop Action New]\nIcon=wrong",exe.display());
+        assert_eq!(super::desktop_icon(&text, &exe), Some("correct".into()));
+        assert_eq!(
+            super::desktop_icon(&text, std::path::Path::new("/missing/other")),
+            None
+        );
+        assert_eq!(
+            super::desktop_icon(
+                "[Desktop Entry]\nName=editor\nStartupWMClass=editor\nIcon=wrong",
+                &exe
+            ),
+            None
+        );
+    }
+}
+#[cfg(all(test, target_os = "linux"))]
 mod desktop_tests {
     #[test]
     #[ignore = "requires installed KDE applications and icon themes"]
     fn kde_application_icons_resolve_to_local_images() {
-        let icons = super::application_icons(vec!["org.kde.dolphin".into(), "konsole".into()]);
+        let apps = ["dolphin", "konsole"].map(|name| {
+            super::resolve_executable(name)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        });
+        let icons = super::application_icons(apps.into());
         assert!(icons.values().all(|icon| icon
             .as_ref()
             .is_some_and(|icon| icon.starts_with("data:image/"))));
-    }
-}
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn desktop_entry_matches_window_identity_and_ignores_actions() {
-        let text = "[Desktop Entry]\nName=Files\nIcon=org.kde.dolphin\nStartupWMClass=Dolphin\nExec=dolphin %u\n[Desktop Action New]\nIcon=wrong";
-        assert_eq!(
-            super::desktop_icon(text, "org.kde.dolphin.desktop", "DOLPHIN"),
-            Some("org.kde.dolphin".into())
-        );
-        assert_eq!(
-            super::desktop_icon(text, "org.kde.dolphin.desktop", "org.kde.dolphin"),
-            Some("org.kde.dolphin".into())
-        );
-        assert_eq!(
-            super::desktop_icon(text, "org.kde.dolphin.desktop", "unknown"),
-            None
-        );
     }
 }
