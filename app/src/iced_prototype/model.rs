@@ -333,10 +333,28 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
     result[1].segments.sort_by_key(|s| s.range.start);
     result
 }
+#[cfg(test)]
 pub fn fixture(day: Range) -> Vec<Track> {
+    fixture_with_apps(
+        day,
+        &[
+            "Editor".into(),
+            "Browser".into(),
+            "Terminal".into(),
+            "Mail".into(),
+            "Design".into(),
+        ],
+    )
+}
+pub fn fixture_with_apps(day: Range, apps: &[String]) -> Vec<Track> {
     let mut events = Vec::new();
     let at = |hour: i64| day.start + hour * 3_600_000;
-    let apps = ["Editor", "Browser", "Terminal", "Mail", "Design"];
+    let fallback = ["Editor", "Browser", "Terminal", "Mail", "Design"];
+    let apps: Vec<&str> = if apps.is_empty() {
+        fallback.to_vec()
+    } else {
+        apps.iter().map(String::as_str).collect()
+    };
     let documents = [
         "Project plan",
         "Draft notes",
@@ -359,7 +377,7 @@ pub fn fixture(day: Range) -> Vec<Track> {
             bucket: "window".into(),
             start_ts: base + index * span / count,
             end_ts: base + (index + 1) * span / count,
-            data: serde_json::json!({"app":apps[i as usize%5],"title":documents[i as usize%8]}),
+            data: serde_json::json!({"app":apps[i as usize % apps.len()],"title":documents[i as usize%8]}),
         });
     }
     for (start, end, status) in [(8, 12, "active"), (12, 13, "away"), (13, 18, "active")] {
@@ -437,6 +455,22 @@ mod tests {
         assert_eq!(data.len(), 4);
         assert_eq!(color("Editor"), color("Editor"));
         assert_ne!(color("Editor"), color("Browser"));
+    }
+
+    #[test]
+    fn fixture_preserves_supplied_process_paths_for_application_identity() {
+        let day = Range::new(0, 86_400_000);
+        let apps = vec![
+            "/usr/bin/firefox".to_string(),
+            "/usr/bin/konsole".to_string(),
+        ];
+        let data = fixture_with_apps(day, &apps);
+        let identities: std::collections::HashSet<_> = data[2]
+            .segments
+            .iter()
+            .map(|segment| segment.key.as_str())
+            .collect();
+        assert_eq!(identities, apps.iter().map(String::as_str).collect());
     }
     #[test]
     fn process_identity_survives_restart_without_merging_other_executables() {

@@ -16,8 +16,10 @@ write the activity database. Use the Theme control to switch palettes and try
 date navigation, search, track visibility/order, zoom, pan, range selection,
 and the summaries. The Day view opens on Applications so each real process has
 its system icon beside its total; zooming in also shows icons on wider blocks
-in the Applications track. The preview uses generated app names, so it shows
-monogram placeholders instead of claiming those sample apps are installed.
+in the Applications track. On Linux, preview events use up to five installed
+applications discovered from desktop entries, keeping each real executable path
+as its process identity so the matching system icon appears. If no app icons can
+be resolved, the preview falls back to generated names and monogram placeholders.
 
 To record real activity, quit the running DagdaTime/Tauri app from its tray,
 then select **Start recording** in the Iced app. It uses the existing DagdaTime

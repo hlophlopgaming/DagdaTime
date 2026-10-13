@@ -30,6 +30,27 @@ use std::{
 
 static TEST_PASSED: AtomicBool = AtomicBool::new(false);
 
+fn decode_icons(encoded_icons: HashMap<String, Option<String>>) -> HashMap<String, AppIcon> {
+    encoded_icons
+        .into_iter()
+        .filter_map(|(app, encoded)| {
+            let encoded = encoded?;
+            let (mime, bytes) = encoded.split_once(',').and_then(|(mime, data)| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .ok()
+                    .map(|bytes| (mime, bytes))
+            })?;
+            let icon = if mime.contains("svg") {
+                AppIcon::Svg(svg::Handle::from_memory(bytes))
+            } else {
+                AppIcon::Png(image::Handle::from_bytes(bytes))
+            };
+            Some((app, icon))
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug)]
 pub enum Message {
     Tick,
@@ -96,6 +117,7 @@ struct State {
     cache: widget::canvas::Cache,
     stats: Arc<timeline::PaintStats>,
     icons: HashMap<String, AppIcon>,
+    preview_apps: Vec<String>,
     runtime: Option<Runtime>,
     tray: Option<tray::Tray>,
     status: Value,
@@ -129,6 +151,8 @@ impl State {
         let date = Local::now().date_naive();
         let day = model::day_bounds(date);
         let stats = Arc::new(timeline::PaintStats::default());
+        let preview_apps = crate::icons::preview_application_processes();
+        let icons = decode_icons(crate::icons::application_icons(preview_apps.clone()));
         let tray = if smoke || (runtime_test && !lifecycle) {
             None
         } else {
@@ -145,7 +169,7 @@ impl State {
             date_text: date.to_string(),
             day,
             view: day,
-            all: model::fixture(day),
+            all: model::fixture_with_apps(day, &preview_apps),
             filtered: Vec::new(),
             order: vec![0, 1, 2, 3],
             visible: vec![0, 1, 2, 3],
@@ -165,7 +189,8 @@ impl State {
             dark: true,
             cache: widget::canvas::Cache::new(),
             stats,
-            icons: HashMap::new(),
+            icons,
+            preview_apps,
             runtime: None,
             tray,
             status: Value::Null,
@@ -293,7 +318,7 @@ impl State {
         self.highlight = None;
         self.limit = 50;
         if self.demo {
-            self.all = model::fixture(self.day);
+            self.all = model::fixture_with_apps(self.day, &self.preview_apps);
         } else {
             self.all = model::empty_tracks();
             self.last_load = Instant::now() - Duration::from_secs(5);
@@ -460,28 +485,7 @@ impl State {
                 match result {
                     Ok(snapshot) => {
                         self.all = snapshot.tracks;
-                        for (app, encoded) in snapshot.icons {
-                            if self.icons.contains_key(&app) {
-                                continue;
-                            }
-                            if let Some(encoded) = encoded {
-                                if let Some((mime, bytes)) =
-                                    encoded.split_once(",").and_then(|(mime, data)| {
-                                        base64::engine::general_purpose::STANDARD
-                                            .decode(data)
-                                            .ok()
-                                            .map(|bytes| (mime, bytes))
-                                    })
-                                {
-                                    let icon = if mime.contains("svg") {
-                                        AppIcon::Svg(svg::Handle::from_memory(bytes))
-                                    } else {
-                                        AppIcon::Png(image::Handle::from_bytes(bytes))
-                                    };
-                                    self.icons.insert(app, icon);
-                                }
-                            }
-                        }
+                        self.icons.extend(decode_icons(snapshot.icons));
                         self.error.clear();
                         self.rebuild();
                     }
@@ -599,7 +603,7 @@ impl State {
             Message::Demo => {
                 self.demo = !self.demo;
                 if self.demo {
-                    self.all = model::fixture(self.day);
+                    self.all = model::fixture_with_apps(self.day, &self.preview_apps);
                 } else if self.runtime.is_some() {
                     self.all = model::empty_tracks();
                     self.last_load = Instant::now() - Duration::from_secs(5);

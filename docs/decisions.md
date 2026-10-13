@@ -219,6 +219,10 @@ Add opt-in per-user startup to the Iced experiment using the OS-native XDG
 Autostart, macOS LaunchAgent, or Windows Run registration. Launch with
 `--autostart --minimized`, which starts collection and keeps the window in the
 tray. Use the current executable path; users need to toggle the setting again
-after moving the binary. Keep preview app names synthetic, show real process
+after moving the binary. On Linux, populate the preview with up to five
+installed applications, using their resolved executable paths as process
+identity so the strict icon lookup works without writing preview data. Keep
+synthetic placeholders when no installed app icon resolves. Show real process
 icons in the Applications summary, and draw them in the Applications track
-only when a block is wide enough to read.
+only when a block is wide enough to read. Native Windows/macOS icon extraction
+remains future work.
