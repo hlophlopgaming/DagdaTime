@@ -94,4 +94,15 @@ an API server until M3.
 Mock tests run without a desktop on every OS. Dedicated Xvfb tests on Linux
 verify actual window properties and polling interval, avoiding changes to a
 user's desktop. Windows/macOS compilation is checked by CI; real focus, input
-and Accessibility permissions still require the manual checks in README.md.
+and Accessibility permissions still require the manual checks in docs/DEVELOPMENT.md.
+
+## 2026-10-13 — Application UI plan and M3.5 app shell
+
+At the user's request, PLAN.md now specifies the desktop UI explicitly (§5),
+modeled on ManicTime's interaction model: a main Day view with timeline tracks,
+range selection, a summary panel and tagging, plus Week, Reports, Tags, Rules,
+Settings, onboarding, a "while you were away" prompt and a tray menu. A new
+milestone M3.5 (app shell: navigation, status, tray, pause/resume, empty and
+error states) sits between M3 and M4, so the app is usable as a GUI before the
+timeline lands and no milestone numbers change. The UI framework choice moves
+from M4 to M3.5. M3 gains `GET /status` and pause/resume endpoints for the UI.
