@@ -54,6 +54,28 @@ jobs:
           $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP 'dagdatime-runtime'
           $process = Start-Process target/release/dagdatime-app.exe -ArgumentList '--runtime-test' -PassThru -Wait
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Launch Iced prototype (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/dagdatime-iced --smoke-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" xvfb-run -a target/release/dagdatime-iced --runtime-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" xvfb-run -a target/release/dagdatime-iced --lifecycle-test
+      - name: Launch Iced prototype (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          target/release/dagdatime-iced --smoke-test
+          DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-runtime" target/release/dagdatime-iced --runtime-test
+          DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-iced-lifecycle" target/release/dagdatime-iced --lifecycle-test
+      - name: Launch Iced prototype (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($mode in @('--smoke-test','--runtime-test','--lifecycle-test')) {
+            $name = $mode.TrimStart('-')
+            $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP "dagdatime-iced-$name"
+            $process = Start-Process target/release/dagdatime-iced.exe -ArgumentList $mode -PassThru -Wait
+            if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          }
       - name: Browser UI tests
         if: runner.os == 'Linux'
         run: |
@@ -68,4 +90,13 @@ jobs:
           path: |
             target/release/dagdatime-app
             target/release/dagdatime-app.exe
+          if-no-files-found: error
+
+      - name: Upload Iced prototype
+        uses: actions/upload-artifact@v4
+        with:
+          name: DagdaTime-Iced-${{ runner.os }}
+          path: |
+            target/release/dagdatime-iced
+            target/release/dagdatime-iced.exe
           if-no-files-found: error

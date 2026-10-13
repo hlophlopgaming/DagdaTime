@@ -202,3 +202,13 @@ entry's Exec. Name, StartupWMClass and icon-name guesses are removed. ELF
 executables generally have no embedded icon; the associated desktop entry is
 used only after its executable has been verified. Missing/inaccessible metadata
 uses the fallback badge. Native Windows/macOS icon extraction remains pending.
+
+## 2026-10-13 — Iced frontend experiment
+
+Keep the accepted Tauri frontend on `main` while testing Iced on
+`experiment/iced`. Build Iced with its tiny-skia software renderer and native
+X11/Wayland backends; do not enable wgpu. The standalone `dagdatime-iced`
+binary links the existing Rust watcher, tracking and SQLite code directly and
+does not launch a helper process. Its first screen is a clearly marked,
+non-persistent preview; recording starts only after an explicit user action.
+Promotion to `main` depends on the user's desktop and memory comparison.
