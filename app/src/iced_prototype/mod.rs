@@ -91,7 +91,7 @@ pub enum Message {
     Folder,
     FolderChosen(Option<std::path::PathBuf>),
     Key(keyboard::Key, keyboard::Modifiers),
-    Loaded(Result<Snapshot, String>),
+    Loaded(u64, Result<Snapshot, String>),
     Screenshot(window::Screenshot),
 }
 #[derive(Clone)]
@@ -132,6 +132,10 @@ struct State {
     status: Value,
     error: String,
     loading: bool,
+    /// Bumped whenever the shown day or data source changes; older loads are dropped.
+    load_generation: u64,
+    /// Day whose recorded history is currently shown; past days are loaded once.
+    loaded_day: Option<Range>,
     clock: Instant,
     last_sample: Instant,
     last_load: Instant,
@@ -153,14 +157,18 @@ impl State {
     fn boot() -> (Self, Task<Message>) {
         let args: Vec<_> = std::env::args().collect();
         let launch = startup::LaunchOptions::parse(args.iter().map(String::as_str));
-        let smoke = args.iter().any(|arg| arg == "--smoke-test");
+        let smoke = cfg!(test) || args.iter().any(|arg| arg == "--smoke-test");
         let lifecycle = args.iter().any(|arg| arg == "--lifecycle-test");
         let runtime_test = lifecycle || args.iter().any(|arg| arg == "--runtime-test");
         let benchmark = args.iter().any(|arg| arg == "--benchmark");
         let date = Local::now().date_naive();
         let day = model::day_bounds(date);
         let stats = Arc::new(timeline::PaintStats::default());
-        let preview_apps = crate::icons::preview_application_processes();
+        let preview_apps = if cfg!(test) {
+            Vec::new()
+        } else {
+            crate::icons::preview_application_processes()
+        };
         let icons = decode_icons(crate::icons::application_icons(preview_apps.clone()));
         let tray = if smoke || (runtime_test && !lifecycle) {
             None
@@ -206,6 +214,8 @@ impl State {
             status: Value::Null,
             error: String::new(),
             loading: false,
+            load_generation: 0,
+            loaded_day: None,
             clock: Instant::now(),
             last_sample: Instant::now() - Duration::from_secs(2),
             last_load: Instant::now() - Duration::from_secs(5),
@@ -266,7 +276,7 @@ impl State {
         if self.runtime.is_some() {
             self.demo = false;
             self.all = model::empty_tracks();
-            self.last_load = Instant::now() - Duration::from_secs(5);
+            self.invalidate_load();
             self.rebuild();
             return;
         }
@@ -276,13 +286,21 @@ impl State {
                 self.demo = false;
                 self.all = model::empty_tracks();
                 self.error.clear();
-                self.last_load = Instant::now() - Duration::from_secs(5);
+                self.invalidate_load();
             }
             Err(error) => {
                 self.error = error;
             }
         }
         self.rebuild();
+    }
+    /// Request a fresh load and discard any load still in flight: its result belongs
+    /// to a different day or data source and must not replace what is shown.
+    fn invalidate_load(&mut self) {
+        self.load_generation = self.load_generation.wrapping_add(1);
+        self.loading = false;
+        self.loaded_day = None;
+        self.last_load = Instant::now() - Duration::from_secs(5);
     }
     fn rebuild(&mut self) {
         let ranges = |track: usize, key: Option<&str>| {
@@ -347,7 +365,7 @@ impl State {
             self.all = model::fixture_with_apps(self.day, &self.preview_apps);
         } else {
             self.all = model::empty_tracks();
-            self.last_load = Instant::now() - Duration::from_secs(5);
+            self.invalidate_load();
         }
         self.rebuild();
     }
@@ -366,8 +384,9 @@ impl State {
                 _ => None,
             }),
         ];
+        // Polling the portal only matters while there is a window to theme.
         #[cfg(target_os = "linux")]
-        if self.theme_preference == appearance::Preference::System {
+        if self.theme_preference == appearance::Preference::System && self.window.is_some() {
             subscriptions.push(
                 iced::time::every(Duration::from_secs(2)).map(|_| Message::RefreshSystemTheme),
             );
@@ -493,14 +512,17 @@ impl State {
                     );
                     return iced::exit();
                 }
-                if !self.demo
-                    && !self.loading
-                    && self.last_load.elapsed() > Duration::from_secs(2)
-                    && (self.window.is_some() || self.lifecycle)
+                let now = dagdatime_daemon::now_ms();
+                let today = self.day.start <= now && now < self.day.end;
+                // Only today's history still changes; a past day is loaded once.
+                let stale = self.loaded_day != Some(self.day)
+                    || (today && self.last_load.elapsed() > Duration::from_secs(2));
+                if !self.demo && !self.loading && stale && (self.window.is_some() || self.lifecycle)
                 {
                     if let Some(runtime) = self.runtime.as_ref() {
                         let shared = runtime.shared.clone();
                         let day = self.day;
+                        let generation = self.load_generation;
                         self.loading = true;
                         self.last_load = Instant::now();
                         return Task::perform(
@@ -510,19 +532,32 @@ impl State {
                                     .map_err(|e| e.to_string())
                                     .and_then(|r| r)
                             },
-                            Message::Loaded,
+                            move |result| Message::Loaded(generation, result),
                         );
                     }
                 }
             }
-            Message::Loaded(result) => {
+            Message::Loaded(generation, result) => {
+                if generation != self.load_generation {
+                    // Started before a date, demo or recording change; not for this view.
+                    return Task::none();
+                }
                 self.loading = false;
                 match result {
                     Ok(snapshot) => {
-                        self.all = snapshot.tracks;
-                        self.icons.extend(decode_icons(snapshot.icons));
+                        self.loaded_day = Some(self.day);
+                        let new_icons: HashMap<_, _> = snapshot
+                            .icons
+                            .into_iter()
+                            .filter(|(key, _)| !self.icons.contains_key(key))
+                            .collect();
+                        self.icons.extend(decode_icons(new_icons));
                         self.error.clear();
-                        self.rebuild();
+                        // Unchanged polls must not rebuild summaries or repaint the canvas.
+                        if snapshot.tracks != self.all {
+                            self.all = snapshot.tracks;
+                            self.rebuild();
+                        }
                     }
                     Err(error) => self.error = error,
                 }
@@ -667,10 +702,11 @@ impl State {
             Message::Demo => {
                 self.demo = !self.demo;
                 if self.demo {
+                    self.invalidate_load();
                     self.all = model::fixture_with_apps(self.day, &self.preview_apps);
                 } else if self.runtime.is_some() {
                     self.all = model::empty_tracks();
-                    self.last_load = Instant::now() - Duration::from_secs(5);
+                    self.invalidate_load();
                 } else {
                     self.demo = true;
                     self.error = "Start recording to load your local history.".into();
@@ -1268,12 +1304,23 @@ pub fn run() -> iced::Result {
         ]
         .contains(&arg.as_str())
     });
+    if is_test && std::env::var_os("DAGDATIME_DATA_DIR").is_none() {
+        // Test modes record fixture activity; never write it into the user's history.
+        let directory = std::env::temp_dir().join(format!("dagdatime-test-{}", std::process::id()));
+        std::env::set_var("DAGDATIME_DATA_DIR", directory);
+    }
     if autostart_test {
         let result = startup::SystemStartup::new().and_then(|mut provider| {
-            if !startup::set_enabled(&mut provider, true)?
-                || startup::set_enabled(&mut provider, false)?
-            {
+            // Leave the user's real login item as it was before the test.
+            let original = provider.is_enabled()?;
+            let enabled = startup::set_enabled(&mut provider, true);
+            let disabled = startup::set_enabled(&mut provider, false);
+            let restored = startup::set_enabled(&mut provider, original);
+            if !enabled? || disabled? {
                 return Err("system startup state did not follow enable/disable".into());
+            }
+            if restored? != original {
+                return Err("could not restore the previous startup setting".into());
             }
             Ok(())
         });
@@ -1315,4 +1362,72 @@ pub fn run() -> iced::Result {
         std::process::exit(1);
     }
     result
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+
+    #[test]
+    fn stale_load_cannot_replace_a_different_day_or_finish_its_load() {
+        let (mut state, _) = State::boot();
+        state.demo = false;
+        state.invalidate_load();
+        let old_generation = state.load_generation;
+        let old_tracks = state.all.clone();
+        state.change_date(state.date.succ_opt().unwrap());
+        state.loading = true;
+        let _ = state.update(Message::Loaded(
+            old_generation,
+            Ok(Snapshot {
+                tracks: old_tracks,
+                icons: HashMap::new(),
+            }),
+        ));
+        assert!(state.all.iter().all(|track| track.segments.is_empty()));
+        assert!(
+            state.loading,
+            "an old result must not clear the new load's pending flag"
+        );
+        assert_eq!(state.loaded_day, None);
+    }
+
+    #[test]
+    fn stale_live_load_cannot_replace_demo_data() {
+        let (mut state, _) = State::boot();
+        state.demo = false;
+        let old_generation = state.load_generation;
+        let _ = state.update(Message::Demo);
+        let preview = state.all.clone();
+        let _ = state.update(Message::Loaded(
+            old_generation,
+            Ok(Snapshot {
+                tracks: model::empty_tracks(),
+                icons: HashMap::new(),
+            }),
+        ));
+        assert!(state.demo);
+        assert!(
+            state.all == preview,
+            "a stale live result must not replace the preview"
+        );
+        assert_eq!(state.loaded_day, None);
+    }
+
+    #[test]
+    fn current_load_updates_history_and_finishes_loading() {
+        let (mut state, _) = State::boot();
+        state.demo = false;
+        state.loading = true;
+        let _ = state.update(Message::Loaded(
+            state.load_generation,
+            Ok(Snapshot {
+                tracks: model::empty_tracks(),
+                icons: HashMap::new(),
+            }),
+        ));
+        assert!(!state.loading);
+        assert_eq!(state.loaded_day, Some(state.day));
+        assert!(state.all.iter().all(|track| track.segments.is_empty()));
+    }
 }
