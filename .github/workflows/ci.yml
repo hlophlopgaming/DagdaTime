@@ -43,15 +43,16 @@ jobs:
       - run: cargo build --package dagdatime-app --release
       - name: Launch desktop and verify frontend readiness (Linux)
         if: runner.os == 'Linux'
-        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1 xvfb-run -a target/release/dagdatime-app --smoke-test
+        run: dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1 DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-runtime" xvfb-run -a target/release/dagdatime-app --runtime-test
       - name: Launch desktop and verify frontend readiness (macOS)
         if: runner.os == 'macOS'
-        run: target/release/dagdatime-app --smoke-test
+        run: DAGDATIME_DATA_DIR="$RUNNER_TEMP/dagdatime-runtime" target/release/dagdatime-app --runtime-test
       - name: Launch desktop and verify frontend readiness (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $process = Start-Process target/release/dagdatime-app.exe -ArgumentList '--smoke-test' -PassThru -Wait
+          $env:DAGDATIME_DATA_DIR = Join-Path $env:RUNNER_TEMP 'dagdatime-runtime'
+          $process = Start-Process target/release/dagdatime-app.exe -ArgumentList '--runtime-test' -PassThru -Wait
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Browser UI tests
         if: runner.os == 'Linux'
@@ -59,3 +60,12 @@ jobs:
           cd app/frontend
           npx playwright install --with-deps chromium
           npm run test:e2e
+
+      - name: Upload desktop executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: DagdaTime-${{ runner.os }}
+          path: |
+            target/release/dagdatime-app
+            target/release/dagdatime-app.exe
+          if-no-files-found: error

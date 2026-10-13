@@ -46,7 +46,7 @@ You open your laptop at 9, and suddenly it's 18:00. Where did the day go?
 | Data stays on your machine | ✅ | ✅ | ✅ |
 | Timeline with manual tagging of time ranges | 🚧 Planned (M5) | ✅ | Rule-based categories |
 | Auto-tagging rules (app / title / URL) | 🚧 Planned (M6) | ✅ | ✅ |
-| Native Wayland backends | 🚧 Planned (M3) | — | Limited |
+| Native Wayland backends | ✅ GNOME/KDE/wlroots | — | Limited |
 | Import from ActivityWatch | 🚧 Planned (M7) | ❌ | — |
 
 DagdaTime keeps its event format compatible with ActivityWatch, so you can bring your history with you.
@@ -56,9 +56,9 @@ DagdaTime keeps its event format compatible with ActivityWatch, so you can bring
 - [x] **M0** Rust workspace, Tauri 2 desktop shell, CI on Windows / macOS / Linux
 - [x] **M1** SQLite storage with migrations and heartbeat event merging
 - [x] **M2** Native watchers: active window + idle time on Windows, macOS, Linux X11
-- [ ] **M3** Background daemon, local API, AFK detection, Wayland (GNOME, KDE, wlroots)
-- [ ] **M3.5** App shell: main window, navigation, tracking status, tray icon with pause/resume
-- [ ] **M4** Day view: timeline, range selection, summary panel (like ManicTime)
+- [x] **M3** Background daemon, local API, AFK detection, Wayland (GNOME, KDE, wlroots)
+- [x] **M3.5** App shell: main window, navigation, tracking status, tray icon with pause/resume
+- [x] **M4** Day view: timeline, range selection, summary panel (like ManicTime)
 - [ ] **M5** Tags: select a range on the timeline → assign a project
 - [ ] **M6** Auto-tagging rules
 - [ ] **M7** Reports, CSV/JSON export, ActivityWatch import
@@ -68,6 +68,8 @@ DagdaTime keeps its event format compatible with ActivityWatch, so you can bring
 
 Full details: [PLAN.md](PLAN.md) · Architecture decisions: [docs/decisions.md](docs/decisions.md)
 
+DagdaTime runs as one desktop executable with embedded tracking and a tray. Data defaults to the system application-data folder; Settings lets you select another folder for the next launch.
+
 ## Try it (developers)
 
 There are no installers yet. You can build from source and run the watcher debug tool, which prints the active window and idle time once per second:
@@ -75,7 +77,9 @@ There are no installers yet. You can build from source and run the watcher debug
 ```sh
 git clone https://github.com/hlophlopgaming/DagdaTime.git
 cd DagdaTime
-cargo run --package dagdatime-daemon --bin tracker -- debug
+npm ci --prefix app/frontend
+npm --prefix app/frontend run build
+cargo run --package dagdatime-app
 ```
 
 Build requirements and platform notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
@@ -99,7 +103,7 @@ That is exactly what DagdaTime is built to be: automatic tracking, a timeline an
 <details>
 <summary><b>Does it work on Linux and Wayland?</b></summary>
 
-Yes, Linux is a first-class platform. X11 already works. Native Wayland backends for GNOME, KDE and wlroots compositors (Sway, Hyprland) are scheduled for M3.
+Yes, Linux is a first-class platform. X11 already works. Wayland backends for GNOME, KDE, Sway and Hyprland are implemented. GNOME/KDE require a local compositor integration; see [Wayland setup](docs/wayland.md). Real compositor behavior needs manual verification.
 </details>
 
 <details>

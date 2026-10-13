@@ -44,16 +44,13 @@ Screenshots, multi-device sync, server edition, mobile clients.
 
 ## 3. Architecture
 
-```
-┌──────────────┐   heartbeats   ┌───────────────┐   HTTP/IPC   ┌──────────┐
-│  Watchers    │ ─────────────▶ │  Core daemon  │ ◀──────────▶ │ Tauri UI │
-│  (per-OS)    │                │ storage + API │              └──────────┘
-└──────────────┘                └───────────────┘
-                                        ▲
-           browser extension ── localhost ┘
-```
+One desktop executable contains the Tauri window, native watchers, background
+tracking, SQLite storage and the localhost API. No separate daemon executable
+is required. Closing the window hides it to the tray and keeps tracking; Quit
+stops the entire application. The CLI is an optional developer diagnostic.
+Data defaults to the OS application-data directory. Settings can select another
+folder for the next launch; existing history remains in its original folder.
 
-- The **daemon** runs in the background (autostart). The UI can be closed without stopping tracking.
 - **Watchers** live behind traits, with a mock implementation for tests:
 
 ```rust
@@ -127,7 +124,7 @@ CREATE TABLE rules (
 
 ## 5. Application UI (modeled on ManicTime)
 
-The desktop app is the product. The daemon and CLI exist to feed it. The UI follows ManicTime's proven model: **one main "Day view" where you see the timeline, select time and tag it**, plus a few supporting screens. Copy the interaction model, not the look or branding.
+The desktop app is the product. Background tracking is embedded in the desktop process; the CLI is diagnostic. The UI follows ManicTime's proven model: **one main "Day view" where you see the timeline, select time and tag it**, plus a few supporting screens. Copy the interaction model, not the look or branding.
 
 ### Design principles
 - **Desktop-dense, not mobile-airy.** Lots of information on one screen, compact rows, small margins.

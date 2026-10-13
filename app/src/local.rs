@@ -44,35 +44,6 @@ pub fn request(path: &str, method: &str, body: &Value) -> Result<Value, String> 
     }
     Ok(value)
 }
-pub fn start() -> Result<(), String> {
-    if request("/status", "GET", &Value::Null).is_ok() {
-        return Ok(());
-    }
-    let mut executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    executable.set_file_name(if cfg!(windows) {
-        "tracker.exe"
-    } else {
-        "tracker"
-    });
-    std::process::Command::new(&executable)
-        .arg("serve")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|_| {
-            "The background service executable is missing or cannot start. Reinstall DagdaTime."
-                .to_string()
-        })?;
-    for _ in 0..20 {
-        if request("/status", "GET", &Value::Null).is_ok() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    Err("The background service could not start. Check file permissions and whether another instance is running.".into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

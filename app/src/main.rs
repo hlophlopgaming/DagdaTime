@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod embedded;
 mod local;
 mod shell;
 
@@ -10,7 +11,11 @@ use tauri::{
     Emitter, Manager,
 };
 
-struct Smoke(bool);
+struct Smoke {
+    enabled: bool,
+    runtime: bool,
+    ready: std::sync::atomic::AtomicBool,
+}
 
 #[tauri::command]
 async fn api_request(path: String, method: String, body: Value) -> Result<Value, String> {
@@ -22,16 +27,55 @@ async fn api_request(path: String, method: String, body: Value) -> Result<Value,
         .map_err(|error| error.to_string())?
 }
 #[tauri::command]
-async fn start_tracking() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(local::start)
-        .await
-        .map_err(|error| error.to_string())?
+async fn start_tracking(app: tauri::AppHandle) -> Result<(), String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = sender.send(embedded::start(&handle, false));
+    })
+    .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv().map_err(|error| error.to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 fn frontend_ready(app: tauri::AppHandle, smoke: tauri::State<'_, Smoke>) {
-    if smoke.0 {
+    smoke.ready.store(true, std::sync::atomic::Ordering::SeqCst);
+    if smoke.enabled && !smoke.runtime {
         app.exit(0);
     }
+}
+
+#[tauri::command]
+fn data_directory() -> Result<Value, String> {
+    use dagdatime_daemon::paths;
+    let current = paths::data_dir().map_err(|e| e.to_string())?;
+    let choice = paths::read_choice(
+        &paths::default_dir()
+            .map_err(|e| e.to_string())?
+            .join("preferences.json"),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(json!({"current":current,"pending":choice.filter(|path|*path!=current)}))
+}
+
+#[tauri::command]
+async fn choose_data_directory(app: tauri::AppHandle) -> Result<Value, String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(folder) = app.dialog().file().blocking_pick_folder() {
+            let path = folder.into_path().map_err(|e| e.to_string())?;
+            let config = dagdatime_daemon::paths::default_dir()
+                .map_err(|e| e.to_string())?
+                .join("preferences.json");
+            dagdatime_daemon::paths::save_choice(&config, &path).map_err(|e| e.to_string())?;
+        }
+        data_directory()
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn show(app: &tauri::AppHandle, settings: bool) {
@@ -177,27 +221,65 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 fn main() {
     let smoke = std::env::args().any(|argument| argument == "--smoke-test");
+    let runtime_test = std::env::args().any(|argument| argument == "--runtime-test");
     tauri::Builder::default()
-        .manage(Smoke(smoke))
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            show(app, false)
+        }))
+        .plugin(tauri_plugin_dialog::init())
+        .manage(Smoke {
+            enabled: smoke || runtime_test,
+            runtime: runtime_test,
+            ready: std::sync::atomic::AtomicBool::new(false),
+        })
+        .manage(embedded::Runtime::default())
         .invoke_handler(tauri::generate_handler![
             api_request,
             start_tracking,
-            frontend_ready
+            frontend_ready,
+            data_directory,
+            choose_data_directory
         ])
         .setup(move |app| {
-            if !smoke {
+            if !smoke && !runtime_test {
                 if let Err(error) = setup_tray(app) {
                     eprintln!("Tray unavailable: {error}");
                 }
-                std::thread::spawn(|| {
-                    if let Err(error) = local::start() {
-                        eprintln!("Daemon unavailable: {error}");
-                    }
-                });
+                if let Err(error) = embedded::start(app.handle(), false) {
+                    eprintln!("Activity service unavailable: {error}");
+                }
             } else {
+                if runtime_test {
+                    embedded::start(app.handle(), true)?;
+                }
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(15));
+                    if runtime_test {
+                        for _ in 0..100 {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            let ready = handle
+                                .state::<Smoke>()
+                                .ready
+                                .load(std::sync::atomic::Ordering::SeqCst);
+                            let runtime = handle.state::<embedded::Runtime>();
+                            let good = runtime.0.lock().unwrap().as_ref().is_some_and(|shared| {
+                                shared
+                                    .storage
+                                    .lock()
+                                    .unwrap()
+                                    .events(Some("window"), 0, dagdatime_daemon::now_ms() + 1)
+                                    .is_ok_and(|events| {
+                                        events.iter().any(|event| event.end_ts > event.start_ts)
+                                    })
+                            });
+                            if ready && good {
+                                handle.exit(0);
+                                return;
+                            }
+                        }
+                    } else {
+                        std::thread::sleep(std::time::Duration::from_secs(15));
+                    }
                     handle.exit(1);
                 });
             }

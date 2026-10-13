@@ -46,7 +46,7 @@
 | データは自分のマシンに保存 | ✅ | ✅ | ✅ |
 | タイムライン上での時間範囲の手動タグ付け | 🚧 予定 (M5) | ✅ | ルールベースのカテゴリ |
 | 自動タグ付けルール（アプリ / タイトル / URL） | 🚧 予定 (M6) | ✅ | ✅ |
-| ネイティブ Wayland バックエンド | 🚧 予定 (M3) | — | 限定的 |
+| ネイティブ Wayland バックエンド | ✅ GNOME/KDE/wlroots | — | 限定的 |
 | ActivityWatch からのインポート | 🚧 予定 (M7) | ❌ | — |
 
 DagdaTime のイベント形式は ActivityWatch と互換性があるため、これまでの履歴を引き継げます。
@@ -56,9 +56,9 @@ DagdaTime のイベント形式は ActivityWatch と互換性があるため、�
 - [x] **M0** Rust ワークスペース、Tauri 2 デスクトップシェル、Windows / macOS / Linux での CI
 - [x] **M1** マイグレーション対応の SQLite ストレージと、ハートビートイベントの統合
 - [x] **M2** ネイティブウォッチャー：Windows・macOS・Linux X11 でのアクティブウィンドウとアイドル時間
-- [ ] **M3** バックグラウンドデーモン、ローカル API、離席検出 (AFK)、Wayland（GNOME、KDE、wlroots）
-- [ ] **M3.5** アプリの骨組み：メインウィンドウ、ナビゲーション、記録ステータス、一時停止/再開付きのトレイアイコン
-- [ ] **M4** 日表示：タイムライン、範囲選択、サマリーパネル（ManicTime と同様）
+- [x] **M3** バックグラウンドデーモン、ローカル API、離席検出 (AFK)、Wayland（GNOME、KDE、wlroots）
+- [x] **M3.5** アプリの骨組み：メインウィンドウ、ナビゲーション、記録ステータス、一時停止/再開付きのトレイアイコン
+- [x] **M4** 日表示：タイムライン、範囲選択、サマリーパネル（ManicTime と同様）
 - [ ] **M5** タグ：タイムライン上で範囲を選択 → プロジェクトを割り当て
 - [ ] **M6** 自動タグ付けルール
 - [ ] **M7** レポート、CSV/JSON エクスポート、ActivityWatch からのインポート
@@ -75,7 +75,9 @@ DagdaTime のイベント形式は ActivityWatch と互換性があるため、�
 ```sh
 git clone https://github.com/hlophlopgaming/DagdaTime.git
 cd DagdaTime
-cargo run --package dagdatime-daemon --bin tracker -- debug
+npm ci --prefix app/frontend
+npm --prefix app/frontend run build
+cargo run --package dagdatime-app
 ```
 
 ビルド要件とプラットフォームごとの注意点：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)（英語）。

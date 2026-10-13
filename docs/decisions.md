@@ -149,3 +149,26 @@ Use Node's test runner for pure frontend logic and Playwright for browser UI
 tests with mocked Tauri IPC. `--smoke-test` launches the actual desktop WebView
 and succeeds only after React mounts and invokes a readiness command; it does
 not start recording. Run this launch test in the CI matrix on all three OSes.
+
+## 2026-10-13 — Single desktop executable and selectable data directory
+
+The desktop executable embeds the watcher polling loop, SQLite and localhost
+API. It never launches a tracker child process. Native window queries run on
+the GUI main thread (required by macOS AppKit); persistence runs in a worker.
+A single-instance plugin brings the existing window forward on a second launch.
+This supersedes the separate daemon/sidecar runtime decision: the user wants
+one desktop application. Closing hides to the tray; Quit stops recording.
+
+Data defaults to the OS local application-data directory. A native folder
+picker saves the next-launch directory in the default folder. The current
+process keeps its original directory so the token and SQLite cannot diverge.
+The UI explicitly states that existing history stays in the old location.
+
+## 2026-10-13 — M4 Day timeline
+
+Use a viewport-sized canvas with subpixel aggregation for 5,000-event days,
+React/DOM for controls and summaries. Selection and totals use exact clipped
+interval unions rather than rendered pixels. Local calendar boundaries handle
+23/25-hour DST days; storage/API remain UTC milliseconds. Unknown gaps are
+unobserved, not invented computer-off events. Demo fixtures are opt-in and
+never persisted. Tag editing remains M5.

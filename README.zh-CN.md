@@ -46,7 +46,7 @@
 | 数据保存在本机 | ✅ | ✅ | ✅ |
 | 时间轴上手动标记时间段 | 🚧 计划中 (M5) | ✅ | 基于规则的分类 |
 | 自动标签规则（应用 / 标题 / URL） | 🚧 计划中 (M6) | ✅ | ✅ |
-| 原生 Wayland 后端 | 🚧 计划中 (M3) | — | 有限支持 |
+| 原生 Wayland 后端 | ✅ GNOME/KDE/wlroots | — | 有限支持 |
 | 从 ActivityWatch 导入 | 🚧 计划中 (M7) | ❌ | — |
 
 DagdaTime 的事件格式与 ActivityWatch 兼容，你可以把历史数据一起带过来。
@@ -56,9 +56,9 @@ DagdaTime 的事件格式与 ActivityWatch 兼容，你可以把历史数据一�
 - [x] **M0** Rust 工作区、Tauri 2 桌面外壳、Windows / macOS / Linux 上的 CI
 - [x] **M1** 带迁移的 SQLite 存储，以及心跳事件合并
 - [x] **M2** 原生监视器：Windows、macOS、Linux X11 上的活动窗口与空闲时间
-- [ ] **M3** 后台守护进程、本地 API、离开检测 (AFK)、Wayland（GNOME、KDE、wlroots）
-- [ ] **M3.5** 应用框架：主窗口、导航、记录状态、带暂停/恢复的托盘图标
-- [ ] **M4** 日视图：时间轴、时间段选择、汇总面板（类似 ManicTime）
+- [x] **M3** 后台守护进程、本地 API、离开检测 (AFK)、Wayland（GNOME、KDE、wlroots）
+- [x] **M3.5** 应用框架：主窗口、导航、记录状态、带暂停/恢复的托盘图标
+- [x] **M4** 日视图：时间轴、时间段选择、汇总面板（类似 ManicTime）
 - [ ] **M5** 标签：在时间轴上选择时间段 → 分配项目
 - [ ] **M6** 自动标签规则
 - [ ] **M7** 报告、CSV/JSON 导出、从 ActivityWatch 导入
@@ -75,7 +75,9 @@ DagdaTime 的事件格式与 ActivityWatch 兼容，你可以把历史数据一�
 ```sh
 git clone https://github.com/hlophlopgaming/DagdaTime.git
 cd DagdaTime
-cargo run --package dagdatime-daemon --bin tracker -- debug
+npm ci --prefix app/frontend
+npm --prefix app/frontend run build
+cargo run --package dagdatime-app
 ```
 
 构建要求和各平台说明：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)（英文）。

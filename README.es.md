@@ -46,7 +46,7 @@ Abres el portátil a las 9 y de repente son las 18:00. ¿A dónde se fue el día
 | Los datos se quedan en tu equipo | ✅ | ✅ | ✅ |
 | Línea de tiempo con etiquetado manual de tramos | 🚧 Previsto (M5) | ✅ | Categorías por reglas |
 | Reglas de etiquetado automático (app / título / URL) | 🚧 Previsto (M6) | ✅ | ✅ |
-| Backends nativos para Wayland | 🚧 Previsto (M3) | — | Limitado |
+| Backends nativos para Wayland | ✅ GNOME/KDE/wlroots | — | Limitado |
 | Importación desde ActivityWatch | 🚧 Previsto (M7) | ❌ | — |
 
 El formato de eventos de DagdaTime es compatible con ActivityWatch, así que podrás traer tu historial.
@@ -56,9 +56,9 @@ El formato de eventos de DagdaTime es compatible con ActivityWatch, así que pod
 - [x] **M0** Workspace de Rust, aplicación de escritorio con Tauri 2, CI en Windows / macOS / Linux
 - [x] **M1** Almacenamiento SQLite con migraciones y fusión de eventos heartbeat
 - [x] **M2** Watchers nativos: ventana activa y tiempo de inactividad en Windows, macOS, Linux X11
-- [ ] **M3** Servicio en segundo plano, API local, detección de ausencia (AFK), Wayland (GNOME, KDE, wlroots)
-- [ ] **M3.5** Estructura de la aplicación: ventana principal, navegación, estado del seguimiento, icono en la bandeja con pausa/reanudar
-- [ ] **M4** Vista de día: línea de tiempo, selección de tramos, panel de resumen (como en ManicTime)
+- [x] **M3** Servicio en segundo plano, API local, detección de ausencia (AFK), Wayland (GNOME, KDE, wlroots)
+- [x] **M3.5** Estructura de la aplicación: ventana principal, navegación, estado del seguimiento, icono en la bandeja con pausa/reanudar
+- [x] **M4** Vista de día: línea de tiempo, selección de tramos, panel de resumen (como en ManicTime)
 - [ ] **M5** Etiquetas: seleccionar un tramo en la línea de tiempo → asignar un proyecto
 - [ ] **M6** Reglas de etiquetado automático
 - [ ] **M7** Informes, exportación CSV/JSON, importación desde ActivityWatch
@@ -75,7 +75,9 @@ Todavía no hay instaladores. Puedes compilar desde el código fuente y ejecutar
 ```sh
 git clone https://github.com/hlophlopgaming/DagdaTime.git
 cd DagdaTime
-cargo run --package dagdatime-daemon --bin tracker -- debug
+npm ci --prefix app/frontend
+npm --prefix app/frontend run build
+cargo run --package dagdatime-app
 ```
 
 Requisitos de compilación y notas por plataforma: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (en inglés).

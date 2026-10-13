@@ -26,24 +26,7 @@ pub fn serve(idle_threshold: u64) -> Result<(), Box<dyn Error>> {
     let shared = Shared::new(storage, token, idle_threshold);
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, paths::PORT))?;
     listener.set_nonblocking(true)?;
-    let server_shared = shared.clone();
-    let server = std::thread::spawn(move || {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(async move {
-            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-            let shutdown = server_shared.clone();
-            let result = axum::serve(listener,crate::api::router(server_shared.clone())).with_graceful_shutdown(async move {
-                loop {
-                    tokio::select! {
-                        _ = tokio::signal::ctrl_c() => { shutdown.control.lock().unwrap().shutdown = true; break; }
-                        _ = tokio::time::sleep(Duration::from_millis(100)) => { if shutdown.control.lock().unwrap().shutdown { break; } }
-                    }
-                }
-            }).await;
-            server_shared.control.lock().unwrap().shutdown = true;
-            result
-        })
-    });
+    let server = spawn_api(shared.clone(), listener);
     let mut tracker = Tracker::new(shared.clone());
     let mut watcher = NativeWatcher::new();
     let mut last_retry = Instant::now();
@@ -73,4 +56,28 @@ pub fn serve(idle_threshold: u64) -> Result<(), Box<dyn Error>> {
     }
     server.join().map_err(|_| "API server thread panicked")??;
     Ok(())
+}
+
+pub fn spawn_api(
+    shared: Shared,
+    listener: std::net::TcpListener,
+) -> std::thread::JoinHandle<std::io::Result<()>> {
+    let server_shared = shared.clone();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            let shutdown = server_shared.clone();
+            let result = axum::serve(listener,crate::api::router(server_shared.clone())).with_graceful_shutdown(async move {
+                loop {
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => { shutdown.control.lock().unwrap().shutdown = true; break; }
+                        _ = tokio::time::sleep(Duration::from_millis(100)) => { if shutdown.control.lock().unwrap().shutdown { break; } }
+                    }
+                }
+            }).await;
+            server_shared.control.lock().unwrap().shutdown = true;
+            result
+        })
+    })
 }

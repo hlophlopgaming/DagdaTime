@@ -2,6 +2,7 @@ import {useEffect,useState,useRef} from 'react';
 import {invoke,request,localDate,shiftDate} from './client.ts';
 import {statusView} from './shell.ts';
 import type {Status} from './shell.ts';
+import Day from './Day.tsx';
 
 const screens=['Day','Week','Reports','Tags','Rules','Settings'];
 const icons=['◷','▦','▤','◇','⌁','⚙'];
@@ -13,6 +14,9 @@ export default function App() {
   const [message,setMessage]=useState('');
   const [search,setSearch]=useState('');
   const [busy,setBusy]=useState(false);
+  const [directory,setDirectory]=useState<{current:string,pending:string|null}|null>(null);
+  useEffect(()=>{if(screen==='Settings')invoke<{current:string,pending:string|null}>('data_directory').then(setDirectory).catch(()=>{});},[screen]);
+  async function chooseFolder(){try{setDirectory(await invoke('choose_data_directory'));}catch(error){setMessage(String(error));}}
   const searchRef=useRef<HTMLInputElement>(null);
   const view=statusView(status);
   useEffect(()=>{
@@ -64,7 +68,8 @@ export default function App() {
         {screen==='Settings'?<div className="settings-grid">
           <article className="panel"><h2>Status & permissions</h2><p>Live status of the background service and activity collectors.</p>{status?.backends.map(backend=><div className="backend" key={backend.name}><div><strong>{backend.name==='window'?'Active window':'Idle detection'}</strong><span className={`badge ${backend.state}`}>{backend.state.replaceAll('_',' ')}</span></div>{backend.error&&<p>{backend.error}</p>}</div>)}{!status&&<p className="warning">{message||'Background service unavailable'}</p>}</article>
           <article className="panel"><h2>Tracking</h2><dl><dt>Current state</dt><dd>{view.label}</dd><dt>Application</dt><dd>{status?.current_window?.app||'—'}</dd><dt>Idle time</dt><dd>{status?.idle_seconds!=null?`${status.idle_seconds} seconds`:'Unavailable'}</dd><dt>Data</dt><dd>Local SQLite database</dd></dl><p>Closing the window keeps recording in the background. Use Quit in the tray to stop DagdaTime.</p></article>
-        </div>:screen==='Day'?<article className="panel empty"><div className="empty-symbol">◷</div><h2>Your day, at a glance</h2><p>The timeline view is being prepared. The background service records activity independently of this window.</p><button onClick={()=>setScreen('Settings')}>Check tracking status</button></article>:<article className="panel empty"><h2>{screen} is coming soon</h2><p>Your activity is kept locally while this view is being built.</p><button onClick={()=>setScreen('Day')}>Back to day</button></article>}
+          <article className="panel"><h2>Data folder</h2><p>Your activity database stays on this computer.</p><p>{directory?.current||'Default system application data folder'}</p><button onClick={chooseFolder}>Choose folder</button>{directory?.pending&&<p>Next launch: {directory.pending}. Restart DagdaTime to use this folder. Existing history stays in the current folder.</p>}</article>
+        </div>:screen==='Day'?<Day date={date} search={search} status={status}/>:<article className="panel empty"><h2>{screen} is coming soon</h2><p>Your activity is kept locally while this view is being built.</p><button onClick={()=>setScreen('Day')}>Back to day</button></article>}
       </section>
       <footer><span><i className={`footer-dot ${view.state}`}/>{view.label}</span><span>DagdaTime · Private by design</span></footer>
     </main>

@@ -11,6 +11,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 serde_json = "1"
 dagdatime-daemon = { path = "../daemon" }
+dagdatime-core.workspace = true
+dagdatime-watchers.workspace = true
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 chrono = "0.4"
 

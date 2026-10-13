@@ -25,19 +25,14 @@ extern "C" {
     fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
 }
 
-pub struct MacWatcher {
-    // Prevent moving AppKit polling off the main thread.
-    _main_thread: MainThreadMarker,
-}
+pub struct MacWatcher;
 
 impl MacWatcher {
     pub fn new() -> Result<Self, WatcherError> {
-        let marker = MainThreadMarker::new().ok_or_else(|| {
+        MainThreadMarker::new().ok_or_else(|| {
             WatcherError::Platform("macOS watcher must run on the main thread".into())
         })?;
-        Ok(Self {
-            _main_thread: marker,
-        })
+        Ok(Self)
     }
 }
 
@@ -59,13 +54,16 @@ fn attribute(element: &CFType, name: &str) -> Result<Option<CFType>, WatcherErro
         }
         // kAXErrorAttributeUnsupported and kAXErrorNoValue: no window/title.
         -25205 | -25212 => Ok(None),
-        -25211 => Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to the terminal or tracker executable in System Settings")),
+        -25211 => Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to DagdaTime (or the terminal when using the debug CLI) in System Settings")),
         other => Err(WatcherError::Platform(format!("Accessibility attribute returned {other}"))),
     }
 }
 
 impl WindowWatcher for MacWatcher {
     fn active_window(&self) -> Result<Option<WindowInfo>, WatcherError> {
+        MainThreadMarker::new().ok_or_else(|| {
+            WatcherError::Platform("macOS window polling must run on the main thread".into())
+        })?;
         autoreleasepool(|_| {
             // NSWorkspace caches application state; process its run loop before polling.
             NSRunLoop::currentRunLoop().runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.001));
@@ -74,7 +72,7 @@ impl WindowWatcher for MacWatcher {
             };
             // SAFETY: AXIsProcessTrusted has no pointer arguments or ownership effects.
             if unsafe { AXIsProcessTrusted() } == 0 {
-                return Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to the terminal or tracker executable in System Settings"));
+                return Err(WatcherError::PermissionDenied("macOS Accessibility: grant access to DagdaTime (or the terminal when using the debug CLI) in System Settings"));
             }
             let pid = app.processIdentifier();
             let app_name = app

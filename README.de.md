@@ -46,7 +46,7 @@ Du klappst um 9 Uhr den Laptop auf, und plötzlich ist es 18 Uhr. Wo ist der Tag
 | Daten bleiben auf deinem Rechner | ✅ | ✅ | ✅ |
 | Zeitleiste mit manuellem Taggen von Zeitbereichen | 🚧 Geplant (M5) | ✅ | Regelbasierte Kategorien |
 | Auto-Tagging-Regeln (App / Titel / URL) | 🚧 Geplant (M6) | ✅ | ✅ |
-| Native Wayland-Backends | 🚧 Geplant (M3) | — | Eingeschränkt |
+| Native Wayland-Backends | ✅ GNOME/KDE/wlroots | — | Eingeschränkt |
 | Import aus ActivityWatch | 🚧 Geplant (M7) | ❌ | — |
 
 Das Ereignisformat von DagdaTime ist mit ActivityWatch kompatibel, sodass du deine Historie mitnehmen kannst.
@@ -56,9 +56,9 @@ Das Ereignisformat von DagdaTime ist mit ActivityWatch kompatibel, sodass du dei
 - [x] **M0** Rust-Workspace, Tauri-2-Desktop-Shell, CI unter Windows / macOS / Linux
 - [x] **M1** SQLite-Speicher mit Migrationen und Zusammenführung von Heartbeat-Ereignissen
 - [x] **M2** Native Watcher: aktives Fenster und Leerlaufzeit unter Windows, macOS, Linux X11
-- [ ] **M3** Hintergrunddienst, lokale API, Abwesenheitserkennung (AFK), Wayland (GNOME, KDE, wlroots)
-- [ ] **M3.5** App-Grundgerüst: Hauptfenster, Navigation, Tracking-Status, Tray-Symbol mit Pause/Fortsetzen
-- [ ] **M4** Tagesansicht: Zeitleiste, Bereichsauswahl, Zusammenfassung (wie in ManicTime)
+- [x] **M3** Hintergrunddienst, lokale API, Abwesenheitserkennung (AFK), Wayland (GNOME, KDE, wlroots)
+- [x] **M3.5** App-Grundgerüst: Hauptfenster, Navigation, Tracking-Status, Tray-Symbol mit Pause/Fortsetzen
+- [x] **M4** Tagesansicht: Zeitleiste, Bereichsauswahl, Zusammenfassung (wie in ManicTime)
 - [ ] **M5** Tags: Bereich auf der Zeitleiste markieren → Projekt zuweisen
 - [ ] **M6** Auto-Tagging-Regeln
 - [ ] **M7** Berichte, CSV/JSON-Export, Import aus ActivityWatch
@@ -75,7 +75,9 @@ Installer gibt es noch nicht. Du kannst aus dem Quellcode bauen und das Debug-We
 ```sh
 git clone https://github.com/hlophlopgaming/DagdaTime.git
 cd DagdaTime
-cargo run --package dagdatime-daemon --bin tracker -- debug
+npm ci --prefix app/frontend
+npm --prefix app/frontend run build
+cargo run --package dagdatime-app
 ```
 
 Build-Voraussetzungen und Plattformhinweise: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (auf Englisch).
