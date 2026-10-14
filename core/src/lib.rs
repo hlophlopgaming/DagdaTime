@@ -41,6 +41,7 @@ pub struct Storage {
     tails: HashMap<String, Event>,
     last_flush: Option<i64>,
     metadata_version: u64,
+    auto_tail: Option<(i64, i64, i64, u64)>,
 }
 
 impl Storage {
@@ -55,6 +56,7 @@ impl Storage {
     fn initialize(mut connection: Connection) -> Result<Self, StorageError> {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", true)?;
+        connection.pragma_update(None, "cache_size", -512)?;
         // The tracker writes every second. WAL appends to a log instead of rewriting
         // pages through a rollback journal, and NORMAL syncs at checkpoints rather
         // than on every commit: still crash-safe for the application, ~10x less I/O.
@@ -64,7 +66,7 @@ impl Storage {
         connection.pragma_update(None, "synchronous", "NORMAL")?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i64 = transaction.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version > 2 {
+        if version > 4 {
             return Err(StorageError::UnsupportedSchema(version));
         }
         if version == 0 {
@@ -74,12 +76,21 @@ impl Storage {
             transaction.execute_batch(include_str!("../migrations/002_tag_archive.sql"))?;
             transaction.pragma_update(None, "user_version", 2)?;
         }
+        if version < 3 {
+            transaction.execute_batch(include_str!("../migrations/003_tag_range_index.sql"))?;
+            transaction.pragma_update(None, "user_version", 3)?;
+        }
+        if version < 4 {
+            transaction.execute_batch(include_str!("../migrations/004_rules_enabled.sql"))?;
+            transaction.pragma_update(None, "user_version", 4)?;
+        }
         transaction.commit()?;
         Ok(Self {
             connection,
             tails: HashMap::new(),
             last_flush: None,
             metadata_version: 0,
+            auto_tail: None,
         })
     }
 
@@ -210,7 +221,7 @@ mod tests;
 mod crud_tests;
 
 mod records;
-pub use records::Collection;
+pub use records::{Collection, Tag, TagRange};
 
 impl Storage {
     /// Stage a sampling tick without opening a SQLite transaction.
@@ -398,3 +409,14 @@ mod tagging_tests;
 
 mod tagging;
 pub use tagging::TagUndo;
+
+#[cfg(test)]
+mod rules_tests;
+
+mod rules;
+pub use rules::{Rule, RuleMatch};
+
+mod reports;
+pub use reports::{Archive, GroupBy, Report, ReportInterval, ReportRow};
+#[cfg(test)]
+mod report_tests;

@@ -47,7 +47,8 @@ Screenshots, multi-device sync, server edition, mobile clients.
 One desktop executable contains the Iced window, native watchers, background
 tracking, SQLite storage and the localhost API. No separate daemon executable
 is required. Closing the window hides it to the tray and keeps tracking; Quit
-stops the entire application. The CLI is an optional developer diagnostic.
+stops the entire application. M7 adds a user-facing CLI for status, reports,
+export and import, alongside the existing developer diagnostics.
 Data defaults to the OS application-data directory. Settings can select another
 folder for the next launch; existing history remains in its original folder.
 
@@ -124,7 +125,7 @@ CREATE TABLE rules (
 
 ## 5. Application UI (modeled on ManicTime)
 
-The desktop app is the product. Background tracking is embedded in the desktop process; the CLI is diagnostic. The UI follows ManicTime's proven model: **one main "Day view" where you see the timeline, select time and tag it**, plus a few supporting screens. Copy the interaction model, not the look or branding.
+The desktop app is the product. Background tracking is embedded in the desktop process; M7 adds a CLI for terminal use and scripting. The UI follows ManicTime's proven model: **one main "Day view" where you see the timeline, select time and tag it**, plus a few supporting screens. Copy the interaction model, not the look or branding.
 
 ### Design principles
 - **Desktop-dense, not mobile-airy.** Lots of information on one screen, compact rows, small margins.
@@ -160,6 +161,7 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 - Zoom from whole day down to minutes; scroll horizontally; hover shows app, title, start–end, duration.
 - Click a block to select it; drag to select any range; Shift-click to extend. Double-click an app block selects its continuous span.
 - **Summary panel** under the timeline with tabs *Tags / Applications / Documents*: duration and share for the current selection, or the whole day if nothing is selected. Clicking a row highlights its blocks on the timeline.
+- A draggable horizontal divider between the timeline and summary adjusts panel heights; Alt+Up/Down provides keyboard resizing. Keep minimum pane heights and independent scrolling, and retain the ratio while the application is running (M5.6).
 - Day totals in the corner: active time, away time, tagged vs untagged.
 
 **2. Tagging (popup on the Day view)**
@@ -178,6 +180,11 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 **5. Reports**
 - Date range (day / week / month / custom), group by *tag / application / document*, optional filter by tag.
 - Table with durations + one bar chart. "Timesheet" layout: tags × days grid with daily totals.
+- Separate **Day overview**, inspired by the [supplied Chronoscope reference](docs/references/day-overview-reference.png): date navigation at the top; a large two-level donut chart on the left; a grouped legend with durations on the right; a compact full-day timeline below. Keep the existing Day view for selection and tag editing.
+- Inner ring: projects/tags, using the top-level tag in each hierarchy. Outer ring: applications within each project/tag group. Use the tag color and related shades for its applications; show active untagged time as an explicit group. The center shows total active time for the selected local day.
+- Chart slices partition observed active time. Split intervals at tag/application boundaries and clip to the local day's UTC bounds; a parent and its descendant must not count the same time twice. For overlapping unrelated tags, use the most recently created range (highest range ID) for that overlap, and explain this assignment in the overview. If active time has no observed application, retain it as an explicit "Unknown application" slice.
+- Hovering a slice or legend row shows duration and share of total active time; clicking highlights the corresponding timeline intervals. Provide the same information and highlighting through keyboard-accessible legend controls. Aggregate tiny slices into "Other" within each group, with a way to inspect the included applications. The legend stacks below the chart in narrow windows; support both themes.
+- The bottom timeline distinguishes tagged/untagged activity, AFK, sleep/off, pause, recording gaps and diagnostic Unobserved. Inactive or unrecorded time stays visible there and is excluded from the active-time donut. Empty/zero-active-time days show an explanation instead of a misleading chart.
 - Export CSV / JSON; copy as text.
 
 **6. Tags manager**
@@ -189,6 +196,7 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 - "Apply to history" for a date range, with a confirmation and undo.
 
 **8. Settings**
+- *Language*: detect and follow the OS language by default; let the user select a language or return to "System default" in Settings, save the choice across restarts, and fall back to English when a translation is unavailable.
 - *Tracking*: away threshold, away prompt on/off, start with system, start minimized to tray.
 - *Privacy*: excluded apps (not recorded at all), title masking per app, pause shortcuts, "delete data for range".
 - *Data*: database location, backup now / automatic backups, import (ActivityWatch), export.
@@ -272,15 +280,46 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 - Tray "tag the last N minutes" enabled.
 - ✅ Tested: total time per tag per day is correct, including overlaps, splits and day boundaries; away prompt creates the right tag range.
 
+### M5.5 — Desktop memory usage
+- Linux tray uses StatusNotifierItem over D-Bus through the existing tray-icon ksni backend; folder selection uses xdg-desktop-portal. Remove GTK3/libappindicator dependencies and their event loop.
+- Closing the window releases day data, summaries, search cache, icon handles and tag metadata; invalidate pending loads and reload on reopen. Preserve unsaved edits and undo. On Linux/glibc, trim freed allocator arenas after the window renderer is destroyed.
+- Build lowercase search strings only during search, share cached strings by their Arc identity and discard the cache when search is cleared. Verify incremental tail replacement.
+- Load typed tag metadata and only ranges overlapping the selected day using an indexed query and a new migration. Keep recent-tag suggestions, overlap detection outside the day and whole-history delete confirmation correct through focused queries.
+- Pass icon bytes directly without base64 or a process-lifetime image cache. Use typed runtime status and a dedicated day-loading worker; limit the SQLite page cache to 512 KiB per connection.
+- ✅ Tests first: close/reopen and stale loads, lazy search and changed tails, tag query boundaries/migration, recent tags/global delete confirmation, overlap outside the viewed day, raw icon handling and tray updates without GUI ticks. Run fmt, clippy and tests.
+- ✅ Compare PSS for tray-only startup and open/close cycles on Linux; document results and limitations. Manually verify tray menus and portal folder selection on X11/Wayland, plus close/reopen and tray behavior on Windows/macOS.
+- Implemented and checked locally: [memory measurements and remaining platform checks](docs/desktop-memory.md).
+
+### M5.6 — Resizable Day panels
+- Add a draggable horizontal divider between the existing activity timeline and summary panel. Resize their heights within the current window; keep fixed track heights and allow vertical scrolling when the timeline pane is smaller than its content.
+- Use Iced's existing PaneGrid, with visible hover/drag feedback, a vertical-resize cursor and minimum pane heights. Alt+Up/Down offers keyboard resizing. Preserve selection, zoom, filters and the split ratio across date changes and close/reopen within the same process.
+- ✅ Tests first: real widget drag emits a resize event, both panes stay usable at extreme ratios, and resizing leaves activity data/selection unchanged. Verify keyboard resizing and retained layout after data cleanup/reopen; run fmt, clippy and tests.
+- ✅ Native fixture smoke/lifecycle checks and manual divider drag/scroll/selection checks on Linux X11/Wayland, Windows and macOS. This milestone changes only the existing Day layout; the separate M7 overview remains planned.
+- Implemented with native mouse-event regression tests; Linux/Wayland fixture smoke, runtime and close/reopen checks passed. Manual pointer drag/scroll/selection checks on real Windows/macOS/X11 sessions remain.
+
 ### M6 — Auto-tagging rules
 - Regex rules on app/title/url with priorities; "apply to history" action.
 - Rules screen (§5.7) with live preview and undo for "apply to history".
 - ✅ Tests for rule matching and priority resolution; preview totals match the applied result.
+- Interface localization: English, Russian, German, French, Spanish, Portuguese, Simplified Chinese and Japanese; translate screens, dialogs, tray menus and user-facing errors. Bundle translations locally.
+- Detect the OS language on first launch and whenever "System default" is selected. Language selection in Settings (§5.8) overrides automatic detection, persists across restarts and offers a return to "System default"; use English when the detected language or a translation is unsupported.
+- ✅ Tests cover language selection, persistence and fallback; manually verify both languages on all screens and in the tray, including long labels and pluralized durations.
 
-### M7 — Week view, reports & export
+- Implemented locally: [M6 usage, tests and remaining platform/language checks](docs/m6.md).
+
+### M7 — Day overview, Week view, reports, export & CLI
 - Week view (§5.4) and Reports screen (§5.5) with timesheet layout.
+- Separate Day overview from §5.5: two-level project/tag → application donut, active-time total, interactive duration legend, date navigation and compact full-day timeline, following the supplied visual reference. Preserve the existing Day view for editing.
+- Draw the overview with the existing Iced canvas and native controls; reuse interval/summary logic and local data. Keep aggregate computation independent of rendering and share it with report/CLI outputs for the same grouping and time basis.
 - CSV/JSON export; ActivityWatch import (Settings → Data).
+- User-facing CLI: status, reports for a selected date range grouped by tag/application/document, CSV/JSON export and ActivityWatch import, without opening a GUI window. Reuse the same business logic as the desktop UI.
+- CLI supports `--help`, machine-readable JSON output, errors on stderr and nonzero exit codes on failure. All operations remain local; timestamps in machine-readable output use Unix UTC milliseconds.
 - ✅ Export → import round-trip test; report totals equal the sum of Day view totals for the same range.
+- ✅ Tests first for the overview: project/application totals and slice shares sum to observed active time; hierarchy and overlapping tags do not double-count; untagged and unknown-application time remain explicit. Cover cross-midnight intervals, local days with DST changes, AFK/sleep/off/pause/recording gaps and empty days. Overview, timeline selection and equivalent report/CLI totals agree.
+- ✅ Overview renders 5 000+ fixture events smoothly; hover/click/keyboard highlighting, small-slice expansion, both themes and narrow-window layout receive native UI checks on supported platforms.
+- ✅ CLI integration tests cover help, report/export parity with the UI on fixtures, import, invalid arguments and failure exit codes; commands run without a graphical session on Linux and receive manual terminal verification on Windows/macOS.
+
+- Implemented locally: [M7 behavior, verification and remaining platform checks](docs/m7.md).
 
 ### M8 — Reserved
 - Wayland scope and acceptance criteria moved to M3 at the user's request.

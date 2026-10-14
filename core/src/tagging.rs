@@ -8,8 +8,19 @@ struct TagState {
 }
 #[derive(Clone, Debug)]
 pub struct TagUndo {
-    before: TagState,
-    after: TagState,
+    change: TagUndoChange,
+}
+#[derive(Clone, Debug)]
+enum TagUndoChange {
+    Snapshot { before: TagState, after: TagState },
+    Inserted(Vec<Value>),
+}
+impl TagUndo {
+    pub(crate) fn inserted(ranges: Vec<Value>) -> Self {
+        Self {
+            change: TagUndoChange::Inserted(ranges),
+        }
+    }
 }
 fn invalid(message: &str) -> StorageError {
     StorageError::InvalidRecord(message.into())
@@ -31,7 +42,9 @@ impl Storage {
             let before = self.tag_state()?;
             change(&self.connection)?;
             let after = self.tag_state()?;
-            Ok(TagUndo { before, after })
+            Ok(TagUndo {
+                change: TagUndoChange::Snapshot { before, after },
+            })
         })();
         match result {
             Ok(undo) => {
@@ -49,6 +62,38 @@ impl Storage {
         }
     }
     pub fn undo_tags(&mut self, undo: TagUndo) -> Result<(), StorageError> {
+        if let TagUndoChange::Inserted(ranges) = &undo.change {
+            self.tag_change(|c| {
+                for range in ranges {
+                    let current: Option<String> = c
+                        .query_row(
+                            &format!("{} WHERE id=?1", Collection::TagRanges.select()),
+                            [range["id"].as_i64()],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    if current
+                        .as_deref()
+                        .map(serde_json::from_str::<Value>)
+                        .transpose()?
+                        .as_ref()
+                        != Some(range)
+                    {
+                        return Err(invalid(
+                            "Tags changed since this action; undo refused to protect newer edits",
+                        ));
+                    }
+                }
+                for range in ranges {
+                    c.execute("DELETE FROM tag_ranges WHERE id=?1", [range["id"].as_i64()])?;
+                }
+                Ok(())
+            })?;
+            return Ok(());
+        }
+        let TagUndoChange::Snapshot { before, after } = undo.change else {
+            unreachable!()
+        };
         self.tag_change(|connection| {
             // Compare inside the write transaction so API edits cannot be lost.
             let current = |collection: Collection| -> Result<Vec<Value>, StorageError> {
@@ -56,16 +101,16 @@ impl Storage {
                 let rows = query.query_map([], |r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 rows.into_iter().map(|r| Ok(serde_json::from_str(&r)?)).collect()
             };
-            if (TagState { tags: current(Collection::Tags)?, ranges: current(Collection::TagRanges)?, rules: current(Collection::Rules)? }) != undo.after { return Err(invalid("Tags changed since this action; undo refused to protect newer edits")); }
+            if (TagState { tags: current(Collection::Tags)?, ranges: current(Collection::TagRanges)?, rules: current(Collection::Rules)? }) != after { return Err(invalid("Tags changed since this action; undo refused to protect newer edits")); }
             connection.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM rules; DELETE FROM tag_ranges; DELETE FROM tags;")?;
-            for tag in &undo.before.tags {
+            for tag in &before.tags {
                 connection.execute("INSERT INTO tags(id,name,color,parent_id,archived) VALUES(?1,?2,?3,?4,?5)", params![tag["id"].as_i64(),tag["name"].as_str(),tag["color"].as_str(),tag["parent_id"].as_i64(),tag["archived"].as_i64()])?;
             }
-            for range in &undo.before.ranges {
+            for range in &before.ranges {
                 connection.execute("INSERT INTO tag_ranges(id,tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4,?5)", params![range["id"].as_i64(),range["tag_id"].as_i64(),range["start_ts"].as_i64(),range["end_ts"].as_i64(),range["note"].as_str()])?;
             }
-            for rule in &undo.before.rules {
-                connection.execute("INSERT INTO rules(id,field,pattern,tag_id,priority) VALUES(?1,?2,?3,?4,?5)", params![rule["id"].as_i64(),rule["field"].as_str(),rule["pattern"].as_str(),rule["tag_id"].as_i64(),rule["priority"].as_i64()])?;
+            for rule in &before.rules {
+                connection.execute("INSERT INTO rules(id,field,pattern,tag_id,priority,enabled) VALUES(?1,?2,?3,?4,?5,?6)", params![rule["id"].as_i64(),rule["field"].as_str(),rule["pattern"].as_str(),rule["tag_id"].as_i64(),rule["priority"].as_i64(),rule["enabled"].as_i64()])?;
             }
             Ok(())
         })?;

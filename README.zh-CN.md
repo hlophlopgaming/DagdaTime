@@ -1,5 +1,14 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteDraugr128.png">
+  <img src="logo/blackDraugr128.png" alt="Draugr Time" width="96" height="96">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteCrown128.png">
+  <img src="logo/blackCrown128.png" alt="Draugr Time tray crown" width="32" height="32">
+</picture>
+
 # Draugr Time
 
 ### 开源、跨平台的 ManicTime 替代品
@@ -21,7 +30,7 @@
 ---
 
 > [!IMPORTANT]
-> **Draugr Time 仍处于早期开发阶段。** 原生 Iced 界面已支持活动跟踪和每日时间线。标签编辑、规则和报告仍在计划中，详见[路线图](#路线图)。
+> **Draugr Time 仍处于早期开发阶段。** 原生 Iced 界面已支持活动跟踪和每日时间线。标签编辑和规则也已实现，日概览、月报告、CSV/JSON导出和ActivityWatch导入现已可用，详见[路线图](#路线图)。
 > ⭐ 点个 **Star** 或开启 👀 **Watch**，关注进展并在首个版本发布时收到通知。
 
 ## 为什么选择 Draugr Time？
@@ -45,9 +54,9 @@
 | 价格 | ✅ 免费 | 免费版 + 付费 Pro 版 | ✅ 免费 |
 | 数据保存在本机 | ✅ | ✅ | ✅ |
 | 时间轴上手动标记时间段 | 🚧 计划中 (M5) | ✅ | 基于规则的分类 |
-| 自动标签规则（应用 / 标题 / URL） | 🚧 计划中 (M6) | ✅ | ✅ |
+| 自动标签规则（应用 / 标题 / URL） | ✅ M6 | ✅ | ✅ |
 | 原生 Wayland 后端 | ✅ GNOME/KDE/wlroots | — | 有限支持 |
-| 从 ActivityWatch 导入 | 🚧 计划中 (M7) | ❌ | — |
+| 从 ActivityWatch 导入 | ✅ | ❌ | — |
 
 Draugr Time 的事件格式与 ActivityWatch 兼容，你可以把历史数据一起带过来。
 
@@ -60,8 +69,8 @@ Draugr Time 的事件格式与 ActivityWatch 兼容，你可以把历史数据�
 - [x] **M3.5** 应用框架：主窗口、导航、记录状态、带暂停/恢复的托盘图标
 - [x] **M4** 日视图：时间轴、时间段选择、汇总面板（类似 ManicTime）
 - [ ] **M5** 标签：在时间轴上选择时间段 → 分配项目
-- [ ] **M6** 自动标签规则
-- [ ] **M7** 报告、CSV/JSON 导出、从 ActivityWatch 导入
+- [x] **M6** 自动标签规则、预览与撤销；八种界面语言 — [M6](docs/m6.md)
+- [x] **M7** 报告、CSV/JSON 导出、从 ActivityWatch 导入
 - [ ] **M9** 用于记录 URL 的浏览器扩展（Firefox、Chromium）
 - [ ] **M10** 首次使用引导、隐私设置、备份和安装包 (MSI, DMG, AppImage/Flatpak)
 - [ ] **以后** 截图、数据库加密、多设备同步
@@ -111,7 +120,7 @@ cargo run --package draugr-time
 <details>
 <summary><b>可以导入 ManicTime 或 ActivityWatch 的数据吗？</b></summary>
 
-从 ActivityWatch 导入计划在 M7 实现。ManicTime 导入正在考虑中：如果需要，请提交 issue。
+现已支持ActivityWatch导入，参见[M7](docs/m7.md)。ManicTime 导入正在考虑中：如果需要，请提交 issue。
 </details>
 
 <details>
@@ -137,3 +146,5 @@ cargo run --package draugr-time
 [GPL-3.0](LICENSE)
 
 <sub>ManicTime、RescueTime、Timing 和 WakaTime 是其各自所有者的商标。Draugr Time 是独立项目，与它们没有任何关联。</sub>
+
+[M7: Overview / Week / Reports / CLI](docs/m7.md).

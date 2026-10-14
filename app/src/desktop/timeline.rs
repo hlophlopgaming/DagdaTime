@@ -374,8 +374,7 @@ impl canvas::Program<Message> for Timeline<'_> {
                     }
                     if width > 90.0 {
                         frame.fill_text(Text {
-                            content: segment
-                                .label
+                            content: super::localization::segment_label(segment)
                                 .chars()
                                 .take(
                                     ((width

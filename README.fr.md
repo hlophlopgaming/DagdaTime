@@ -1,5 +1,14 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteDraugr128.png">
+  <img src="logo/blackDraugr128.png" alt="Draugr Time" width="96" height="96">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteCrown128.png">
+  <img src="logo/blackCrown128.png" alt="Draugr Time tray crown" width="32" height="32">
+</picture>
+
 # Draugr Time
 
 ### Alternative open source et multiplateforme à ManicTime
@@ -21,7 +30,7 @@ Voyez où est passée votre journée sur une timeline, associez votre temps à d
 ---
 
 > [!IMPORTANT]
-> **Draugr Time est au début de son développement.** Le suivi et la chronologie quotidienne fonctionnent avec l’interface native Iced. L’édition des étiquettes, les règles et les rapports sont prévus ; voir la [feuille de route](#feuille-de-route).
+> **Draugr Time est au début de son développement.** Le suivi et la chronologie quotidienne fonctionnent avec l’interface native Iced. Les étiquettes et les règles fonctionnent aussi ; la vue du jour, les rapports mensuels, CSV/JSON et l’import ActivityWatch sont disponibles ; voir la [feuille de route](#feuille-de-route).
 > ⭐ Ajoutez une **étoile** ou activez 👀 **Watch** pour suivre l'avancement et être averti de la première version.
 
 ## Pourquoi Draugr Time ?
@@ -45,9 +54,9 @@ Vous ouvrez votre ordinateur à 9 h, et soudain il est 18 h. Où est passée la 
 | Prix | ✅ Gratuit | Édition gratuite, Pro payante | ✅ Gratuit |
 | Les données restent sur votre machine | ✅ | ✅ | ✅ |
 | Timeline avec étiquetage manuel de plages horaires | 🚧 Prévu (M5) | ✅ | Catégories par règles |
-| Règles d'étiquetage automatique (app / titre / URL) | 🚧 Prévu (M6) | ✅ | ✅ |
+| Règles d'étiquetage automatique (app / titre / URL) | ✅ M6 | ✅ | ✅ |
 | Backends Wayland natifs | ✅ GNOME/KDE/wlroots | — | Limité |
-| Import depuis ActivityWatch | 🚧 Prévu (M7) | ❌ | — |
+| Import depuis ActivityWatch | ✅ | ❌ | — |
 
 Le format d'événements de Draugr Time est compatible avec ActivityWatch : vous pourrez emporter votre historique.
 
@@ -60,8 +69,8 @@ Le format d'événements de Draugr Time est compatible avec ActivityWatch : vous
 - [x] **M3.5** Squelette de l'application : fenêtre principale, navigation, état du suivi, icône dans la barre système avec pause/reprise
 - [x] **M4** Vue Jour : timeline, sélection de plages, panneau récapitulatif (comme dans ManicTime)
 - [ ] **M5** Étiquettes : sélectionner une plage sur la timeline → attribuer un projet
-- [ ] **M6** Règles d'étiquetage automatique
-- [ ] **M7** Rapports, export CSV/JSON, import depuis ActivityWatch
+- [x] **M6** Règles automatiques, aperçu et annulation ; huit langues d’interface — [M6](docs/m6.md)
+- [x] **M7** Rapports, export CSV/JSON, import depuis ActivityWatch
 - [ ] **M9** Extension de navigateur pour les URL (Firefox, Chromium)
 - [ ] **M10** Premier lancement, confidentialité, sauvegardes et installateurs (MSI, DMG, AppImage/Flatpak)
 - [ ] **Plus tard** Captures d'écran, chiffrement de la base, synchronisation entre appareils
@@ -111,7 +120,7 @@ En partie. Comme RescueTime et Timing, il suit automatiquement votre utilisation
 <details>
 <summary><b>Puis-je importer mes données ManicTime ou ActivityWatch ?</b></summary>
 
-L'import depuis ActivityWatch est prévu pour M7. L'import depuis ManicTime est à l'étude : ouvrez une issue si vous en avez besoin.
+L’import ActivityWatch est disponible ; voir [M7](docs/m7.md). L'import depuis ManicTime est à l'étude : ouvrez une issue si vous en avez besoin.
 </details>
 
 <details>
@@ -137,3 +146,5 @@ Si Draugr Time vous semble utile, **une étoile aide d'autres personnes à le tr
 [GPL-3.0](LICENSE)
 
 <sub>ManicTime, RescueTime, Timing et WakaTime sont des marques de leurs propriétaires respectifs. Draugr Time est un projet indépendant, sans lien avec eux.</sub>
+
+[M7: Overview / Week / Reports / CLI](docs/m7.md).

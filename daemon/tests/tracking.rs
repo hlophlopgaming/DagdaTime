@@ -180,3 +180,42 @@ async fn shutdown_notification_handles_a_signal_before_the_waiter_starts() {
     .await
     .unwrap();
 }
+
+#[test]
+fn rules_tag_observed_active_time_but_never_away_pause_or_gaps() {
+    use draugr_time_core::Collection;
+    use serde_json::json;
+    let shared = Shared::new(Storage::open_in_memory().unwrap(), "token".into(), 300);
+    {
+        let mut db = shared.storage.lock().unwrap();
+        db.put(Collection::Tags, None, json!({"name":"Work"}))
+            .unwrap();
+        db.put(
+            Collection::Rules,
+            None,
+            json!({"field":"app","pattern":"editor","tag_id":1}),
+        )
+        .unwrap();
+    }
+    let mut tracker = Tracker::new(shared.clone());
+    let watcher = MockWatcher::new(Some(window("editor")), 0);
+    for ts in [0, 1000, 2000] {
+        tracker.poll_once(ts, &watcher, &watcher).unwrap();
+    }
+    shared.pause(2000, None).unwrap();
+    tracker.poll_once(3000, &watcher, &watcher).unwrap();
+    shared.resume();
+    for ts in [4000, 5000, 9000, 10000] {
+        tracker.poll_once(ts, &watcher, &watcher).unwrap();
+    }
+    let db = shared.storage.lock().unwrap();
+    let ranges = db.tag_ranges(0, 11000).unwrap();
+    assert_eq!(
+        ranges.iter().map(|r| r.end_ts - r.start_ts).sum::<i64>(),
+        4000
+    );
+    assert!(ranges
+        .iter()
+        .all(|r| r.end_ts <= 2000 || r.start_ts >= 4000 && r.end_ts <= 5000 || r.start_ts >= 9000));
+    assert_eq!(ranges.len(), 3, "continuous auto tags merge");
+}

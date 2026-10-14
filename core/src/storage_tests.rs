@@ -143,7 +143,7 @@ fn reopening_applies_migrations_once_and_preserves_events() {
         .connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 4);
     for table in ["events", "tags", "tag_ranges", "rules"] {
         reopened
             .connection
@@ -164,15 +164,15 @@ fn newer_schema_is_rejected_without_downgrading() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("future.sqlite");
     let connection = rusqlite::Connection::open(&path).unwrap();
-    connection.pragma_update(None, "user_version", 3).unwrap();
+    connection.pragma_update(None, "user_version", 5).unwrap();
     assert!(matches!(
         Storage::open(&path),
-        Err(StorageError::UnsupportedSchema(3))
+        Err(StorageError::UnsupportedSchema(5))
     ));
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 5);
 }
 
 #[test]
@@ -439,4 +439,30 @@ fn evidence_intervals_reject_overlap_and_keep_zero_length_markers() {
     );
     assert_eq!(storage.events(Some("computer"), 0, 3000).unwrap().len(), 2);
     assert_eq!(storage.first_event_start("computer").unwrap(), Some(1000));
+}
+
+#[test]
+fn v2_migration_preserves_tag_history_and_adds_range_index() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("v2.sqlite");
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(include_str!("../migrations/001_initial.sql"))
+        .unwrap();
+    connection
+        .execute_batch(include_str!("../migrations/002_tag_archive.sql"))
+        .unwrap();
+    connection.execute_batch("PRAGMA user_version=2; INSERT INTO tags(id,name) VALUES(1,'Kept'); INSERT INTO tag_ranges(id,tag_id,start_ts,end_ts,note) VALUES(1,1,10,30,'Kept note');").unwrap();
+    drop(connection);
+    let db = Storage::open(&path).unwrap();
+    assert_eq!(db.tags().unwrap()[0].name, "Kept");
+    assert_eq!(
+        db.tag_ranges(20, 40).unwrap()[0].note.as_deref(),
+        Some("Kept note")
+    );
+    let version: i64 = db
+        .connection
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 4);
 }

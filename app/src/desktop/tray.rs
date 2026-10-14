@@ -1,5 +1,8 @@
-use super::model;
-use serde_json::Value;
+use super::{
+    localization::{self, tr},
+    model,
+};
+use draugr_time_daemon::Status;
 use std::cell::RefCell;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
@@ -17,10 +20,12 @@ pub struct NativeTray {
     /// icon are only pushed to the OS when they change (on Linux every `set_icon`
     /// writes a new PNG for the indicator).
     shown: RefCell<Option<Shown>>,
+    labels: Vec<(MenuItem, &'static str)>,
 }
 #[derive(Clone, PartialEq)]
 struct Shown {
-    label: &'static str,
+    label: String,
+    language: localization::Language,
     color: [u8; 3],
     activity: String,
     total: String,
@@ -30,29 +35,33 @@ struct Shown {
 impl NativeTray {
     pub fn new() -> Result<Self, String> {
         channel();
-        #[cfg(target_os = "linux")]
-        gtk::init().map_err(|e| e.to_string())?;
         let menu = Menu::new();
-        let open = MenuItem::with_id("open", "Open Draugr Time", true, None);
-        let start = MenuItem::with_id("start", "Start recording", true, None);
-        let status = MenuItem::new("Not recording", false, None);
-        let activity = MenuItem::new("No current activity", false, None);
-        let total = MenuItem::new("Active time: —", false, None);
-        let quick = MenuItem::with_id("quick15", "Tag last 15 minutes", true, None);
-        let quick5 = MenuItem::with_id("quick5", "Tag last 5 minutes", true, None);
-        let quick60 = MenuItem::with_id("quick60", "Tag last hour", true, None);
-        let pause = MenuItem::with_id("pause", "Pause until resumed", false, None);
-        let pause15 = MenuItem::with_id("pause15", "Pause for 15 minutes", true, None);
-        let resume = MenuItem::with_id("resume", "Resume tracking", false, None);
-        let settings = MenuItem::with_id("settings", "Settings", true, None);
-        let quit = MenuItem::with_id("quit", "Quit Draugr Time", true, None);
+        let mut labels = Vec::new();
+        let mut item = |id: &str, label: &'static str, enabled: bool| {
+            let menu_item = MenuItem::with_id(id, tr(label), enabled, None);
+            labels.push((menu_item.clone(), label));
+            menu_item
+        };
+        let open = item("open", "Open Draugr Time", true);
+        let start = item("start", "Start recording", true);
+        let status = MenuItem::new(tr("Not recording"), false, None);
+        let activity = MenuItem::new(tr("No current activity"), false, None);
+        let total = MenuItem::new(tr("Active time: —"), false, None);
+        let quick = item("quick15", "Tag last 15 minutes", true);
+        let quick5 = item("quick5", "Tag last 5 minutes", true);
+        let quick60 = item("quick60", "Tag last hour", true);
+        let pause = item("pause", "Pause until resumed", false);
+        let pause15 = item("pause15", "Pause for 15 minutes", true);
+        let resume = item("resume", "Resume tracking", false);
+        let settings = item("settings", "Settings", true);
+        let quit = item("quit", "Quit Draugr Time", true);
         menu.append_items(&[
             &open, &status, &activity, &total, &start, &quick, &quick5, &quick60, &pause, &pause15,
             &resume, &settings, &quit,
         ])
         .map_err(|e| e.to_string())?;
         let icon = TrayIconBuilder::new()
-            .with_tooltip("Draugr Time · Not recording")
+            .with_tooltip(tr("Draugr Time · Not recording"))
             .with_icon(Self::image([130, 145, 160]))
             .with_menu(Box::new(menu))
             .build()
@@ -65,22 +74,15 @@ impl NativeTray {
             pause,
             resume,
             shown: RefCell::new(None),
+            labels,
         })
     }
     fn image(color: [u8; 3]) -> Icon {
-        let mut rgba = vec![0; 32 * 32 * 4];
-        for y in 0..32 {
-            for x in 0..32 {
-                if (x as i32 - 16).pow(2) + (y as i32 - 16).pow(2) < 144 {
-                    let index = (y * 32 + x) * 4;
-                    rgba[index..index + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
-                }
-            }
-        }
+        let rgba = crate::branding::tray_rgba(color);
         Icon::from_rgba(rgba, 32, 32).expect("valid tray image")
     }
-    pub fn update(&self, status: &Value, active: i64, fixture: bool) {
-        let state = status["state"].as_str().unwrap_or("preview");
+    pub fn update(&self, status: &Status, active: i64, fixture: bool) {
+        let state = status.state.as_str();
         let (label, color) = match state {
             "tracking" => ("Tracking", [56, 162, 128]),
             "paused" => ("Paused", [217, 165, 56]),
@@ -92,29 +94,36 @@ impl NativeTray {
             _ => ("Not recording", [130, 145, 160]),
         };
         let next = Shown {
-            label,
+            label: tr(label),
+            language: localization::current(),
             color,
-            activity: status["current_window"]["app"]
-                .as_str()
-                .map(model::process_label)
-                .unwrap_or("No current activity")
-                .to_owned(),
+            activity: status
+                .current_window
+                .as_ref()
+                .map(|window| model::process_label(&window.app))
+                .map(str::to_owned)
+                .unwrap_or_else(|| tr("No current activity")),
             total: format!(
                 "{}: {}",
-                if fixture {
+                tr(if fixture {
                     "Fixture active time"
                 } else {
                     "Selected day active time"
-                },
+                }),
                 model::duration(active)
             ),
-            pause: state != "preview" && state != "paused",
+            pause: !state.is_empty() && state != "preview" && state != "paused",
             resume: state == "paused",
         };
         let mut shown = self.shown.borrow_mut();
         let old = shown.as_ref();
+        if old.is_none_or(|old| old.language != next.language) {
+            for (item, key) in &self.labels {
+                item.set_text(tr(key));
+            }
+        }
         if old.is_none_or(|old| old.label != next.label) {
-            self.status.set_text(next.label);
+            self.status.set_text(&next.label);
         }
         if old.is_none_or(|old| old.activity != next.activity) {
             self.activity.set_text(&next.activity);
@@ -128,7 +137,7 @@ impl NativeTray {
         if old.is_none_or(|old| old.resume != next.resume) {
             self.resume.set_enabled(next.resume);
         }
-        if old.is_none_or(|old| (old.label, old.color) != (next.label, next.color)) {
+        if old.is_none_or(|old| (&old.label, old.color) != (&next.label, next.color)) {
             let _ = self.icon.set_icon(Some(Self::image(next.color)));
             let _ = self
                 .icon
@@ -143,7 +152,7 @@ pub type Tray = NativeTray;
 #[derive(Clone, Debug)]
 pub enum Event {
     Menu(String),
-    Status(Value),
+    Status(std::sync::Arc<Status>),
 }
 fn channel() -> &'static tokio::sync::broadcast::Sender<Event> {
     static CHANNEL: std::sync::OnceLock<tokio::sync::broadcast::Sender<Event>> =
@@ -157,8 +166,8 @@ fn channel() -> &'static tokio::sync::broadcast::Sender<Event> {
         sender
     })
 }
-pub fn push_status(status: Value) {
-    let _ = channel().send(Event::Status(status));
+pub fn push_status(status: Status) {
+    let _ = channel().send(Event::Status(std::sync::Arc::new(status)));
 }
 pub fn events() -> impl iced::futures::Stream<Item = Event> {
     use iced::futures::SinkExt;
@@ -179,17 +188,17 @@ pub fn events() -> impl iced::futures::Stream<Item = Event> {
 #[cfg(target_os = "linux")]
 mod linux {
     use super::*;
-    use std::{sync::mpsc, time::Duration};
+    use std::sync::mpsc;
 
     enum Command {
-        Update(Value, i64, bool),
+        Update(Box<Status>, i64, bool),
         Quit,
     }
     trait Backend {
-        fn update(&self, status: &Value, active: i64, fixture: bool);
+        fn update(&self, status: &Status, active: i64, fixture: bool);
     }
     impl Backend for NativeTray {
-        fn update(&self, status: &Value, active: i64, fixture: bool) {
+        fn update(&self, status: &Status, active: i64, fixture: bool) {
             NativeTray::update(self, status, active, fixture);
         }
     }
@@ -200,10 +209,10 @@ mod linux {
         pub fn new() -> Result<Self, String> {
             spawn_service(NativeTray::new)
         }
-        pub fn update(&self, status: &Value, active: i64, fixture: bool) {
+        pub fn update(&self, status: &Status, active: i64, fixture: bool) {
             let _ = self
                 .sender
-                .send(Command::Update(status.clone(), active, fixture));
+                .send(Command::Update(Box::new(status.clone()), active, fixture));
         }
     }
     impl Drop for Tray {
@@ -217,14 +226,6 @@ mod linux {
         let (sender, receiver) = mpsc::channel();
         let (ready, started) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            let context = gtk::glib::MainContext::default();
-            let _owner = match context.acquire() {
-                Ok(owner) => owner,
-                Err(error) => {
-                    let _ = ready.send(Err(error.to_string()));
-                    return;
-                }
-            };
             let backend = match init() {
                 Ok(backend) => backend,
                 Err(error) => {
@@ -235,21 +236,14 @@ mod linux {
             if ready.send(Ok(())).is_err() {
                 return;
             }
-            let main_loop = gtk::glib::MainLoop::new(Some(&context), false);
-            let stop = main_loop.clone();
-            gtk::glib::timeout_add_local(Duration::from_millis(50), move || loop {
-                match receiver.try_recv() {
-                    Ok(Command::Update(status, active, fixture)) => {
+            while let Ok(command) = receiver.recv() {
+                match command {
+                    Command::Update(status, active, fixture) => {
                         backend.update(&status, active, fixture)
                     }
-                    Ok(Command::Quit) | Err(mpsc::TryRecvError::Disconnected) => {
-                        stop.quit();
-                        return gtk::glib::ControlFlow::Break;
-                    }
-                    Err(mpsc::TryRecvError::Empty) => return gtk::glib::ControlFlow::Continue,
+                    Command::Quit => break,
                 }
-            });
-            main_loop.run();
+            }
         });
         started.recv().map_err(|error| error.to_string())??;
         Ok(Tray { sender })
@@ -258,25 +252,67 @@ mod linux {
     #[cfg(test)]
     mod tests {
         use super::*;
-        struct MockBackend(mpsc::Sender<Value>);
+        use std::time::Duration;
+        struct MockBackend(mpsc::Sender<Status>);
         impl Backend for MockBackend {
-            fn update(&self, status: &Value, _: i64, _: bool) {
+            fn update(&self, status: &Status, _: i64, _: bool) {
                 self.0.send(status.clone()).unwrap();
             }
+        }
+        #[test]
+        #[ignore = "requires a private D-Bus session (dbus-run-session)"]
+        fn native_ksni_menu_dispatches_without_gui_ticks() {
+            let host = lifecycle_host().unwrap();
+            assert!(
+                host.is_some(),
+                "run on a private bus, not the user's desktop"
+            );
+            let mut receiver = channel().subscribe();
+            let tray = Tray::new().unwrap();
+            let connection = zbus::blocking::Connection::session().unwrap();
+            let dbus = zbus::blocking::fdo::DBusProxy::new(&connection).unwrap();
+            let name = dbus
+                .list_names()
+                .unwrap()
+                .into_iter()
+                .find(|name| {
+                    name.as_str().starts_with(&format!(
+                        "org.kde.StatusNotifierItem-{}-",
+                        std::process::id()
+                    ))
+                })
+                .unwrap();
+            let proxy = zbus::blocking::Proxy::new(
+                &connection,
+                name.as_str(),
+                "/MenuBar",
+                "com.canonical.dbusmenu",
+            )
+            .unwrap();
+            let _: () = proxy
+                .call(
+                    "Event",
+                    &(1_i32, "clicked", zbus::zvariant::Value::from(0_i32), 0_u32),
+                )
+                .unwrap();
+            let event = receiver.try_recv().unwrap();
+            assert!(matches!(event, Event::Menu(id) if id == "open"));
+            drop(tray);
         }
         #[test]
         fn tray_services_native_events_without_gui_ticks() {
             let (event, received) = mpsc::channel();
             let (updates, updated) = mpsc::channel();
             let tray = spawn_service(move || {
-                gtk::glib::idle_add_local_once(move || {
-                    event.send(()).unwrap();
-                });
+                event.send(()).unwrap();
                 Ok(MockBackend(updates))
             })
             .unwrap();
             let result = received.recv_timeout(Duration::from_secs(1));
-            let status = serde_json::json!({"state": "paused"});
+            let status = Status {
+                state: "paused".into(),
+                ..Default::default()
+            };
             tray.update(&status, 0, false);
             let update = updated.recv_timeout(Duration::from_secs(1));
             drop(tray);
@@ -290,3 +326,38 @@ mod linux {
 }
 #[cfg(target_os = "linux")]
 pub use linux::Tray;
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct FixtureWatcher;
+#[cfg(target_os = "linux")]
+#[zbus::interface(name = "org.kde.StatusNotifierWatcher")]
+impl FixtureWatcher {
+    fn register_status_notifier_item(&self, _service: &str) {}
+    #[zbus(property)]
+    fn is_status_notifier_host_registered(&self) -> bool {
+        true
+    }
+}
+/// CI has a private session bus but no desktop panel; this host is only for lifecycle diagnostics.
+#[cfg(target_os = "linux")]
+pub fn lifecycle_host() -> Result<Option<zbus::blocking::Connection>, String> {
+    let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
+    let dbus =
+        zbus::blocking::fdo::DBusProxy::new(&connection).map_err(|error| error.to_string())?;
+    if dbus
+        .name_has_owner("org.kde.StatusNotifierWatcher".try_into().unwrap())
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(None);
+    }
+    connection
+        .object_server()
+        .at("/StatusNotifierWatcher", FixtureWatcher)
+        .map_err(|error| error.to_string())?;
+    connection
+        .request_name("org.kde.StatusNotifierWatcher")
+        .map_err(|error| error.to_string())?;
+    eprintln!("Lifecycle diagnostic: using fixture StatusNotifierWatcher (no real panel)");
+    Ok(Some(connection))
+}

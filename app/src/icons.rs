@@ -242,14 +242,20 @@ pub fn preview_application_processes() -> Vec<(String, String)> {
     Vec::new()
 }
 
+#[derive(Clone, Debug)]
+pub enum IconData {
+    Png(Vec<u8>),
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Svg(Vec<u8>),
+}
+
 trait IconProvider {
-    fn icon(&self, process: &str, app_name: &str) -> Option<String>;
+    fn icon(&self, process: &str, app_name: &str) -> Option<IconData>;
 }
 struct SystemIcons;
 #[cfg(target_os = "linux")]
 impl IconProvider for SystemIcons {
-    fn icon(&self, app: &str, app_name: &str) -> Option<String> {
-        use base64::Engine;
+    fn icon(&self, app: &str, app_name: &str) -> Option<IconData> {
         let process = std::path::Path::new(app);
         if !process.is_absolute() {
             return None;
@@ -270,9 +276,9 @@ impl IconProvider for SystemIcons {
                         .find()
                 })?
         };
-        let mime = match path.extension()?.to_str()? {
-            "svg" => "image/svg+xml",
-            "png" => "image/png",
+        let svg = match path.extension()?.to_str()? {
+            "svg" => true,
+            "png" => false,
             "xpm" => return None,
             _ => return None,
         };
@@ -280,15 +286,16 @@ impl IconProvider for SystemIcons {
             return None;
         }
         let bytes = std::fs::read(path).ok()?;
-        Some(format!(
-            "data:{mime};base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(bytes)
-        ))
+        Some(if svg {
+            IconData::Svg(bytes)
+        } else {
+            IconData::Png(bytes)
+        })
     }
 }
 #[cfg(not(target_os = "linux"))]
 impl IconProvider for SystemIcons {
-    fn icon(&self, process: &str, app_name: &str) -> Option<String> {
+    fn icon(&self, process: &str, app_name: &str) -> Option<IconData> {
         #[cfg(target_os = "windows")]
         return windows_icon(process, app_name);
         #[cfg(target_os = "macos")]
@@ -301,10 +308,9 @@ impl IconProvider for SystemIcons {
 
 pub fn application_icons(
     apps: Vec<(String, String)>,
-) -> std::collections::HashMap<String, Option<String>> {
-    static CACHE: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, Option<String>>>,
-    > = std::sync::OnceLock::new();
+) -> std::collections::HashMap<String, Option<IconData>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
+        std::sync::OnceLock::new();
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
     let mut result = std::collections::HashMap::new();
     for (process, app_name) in apps.into_iter().take(200) {
@@ -319,16 +325,19 @@ pub fn application_icons(
             cache.clear();
         }
         let key = icon_key(&process, &app_name);
-        let icon = cache
-            .entry(key.clone())
-            .or_insert_with(|| SystemIcons.icon(&process, &app_name));
-        result.insert(key, icon.clone());
+        let icon = if cache.get(&key) == Some(&false) {
+            None
+        } else {
+            SystemIcons.icon(&process, &app_name)
+        };
+        cache.insert(key.clone(), icon.is_some());
+        result.insert(key, icon);
     }
     result
 }
 
 #[cfg(target_os = "windows")]
-fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
+fn windows_icon(process: &str, _app_name: &str) -> Option<IconData> {
     use std::{os::windows::ffi::OsStrExt, ptr::null_mut};
     use windows_sys::Win32::{
         Graphics::Gdi::{
@@ -440,8 +449,7 @@ fn windows_icon(process: &str, _app_name: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn macos_icon(process: &str, _app_name: &str) -> Option<String> {
-    use base64::Engine;
+fn macos_icon(process: &str, _app_name: &str) -> Option<IconData> {
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{
         NSBitmapImageFileType, NSBitmapImageRep, NSBitmapImageRepPropertyKey, NSWorkspace,
@@ -469,24 +477,17 @@ fn macos_icon(process: &str, _app_name: &str) -> Option<String> {
     let mut bytes = vec![0; length];
     let buffer = NonNull::new(bytes.as_mut_ptr().cast())?;
     unsafe { png.getBytes_length(buffer, length as _) };
-    Some(format!(
-        "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    ))
+    Some(IconData::Png(bytes))
 }
 
 #[cfg(target_os = "windows")]
-fn encode_png(rgba: &[u8], width: u32, height: u32) -> Option<String> {
-    use base64::Engine;
+fn encode_png(rgba: &[u8], width: u32, height: u32) -> Option<IconData> {
     let mut png_bytes = Vec::new();
     let mut encoder = png::Encoder::new(&mut png_bytes, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header().ok()?.write_image_data(rgba).ok()?;
-    Some(format!(
-        "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(png_bytes)
-    ))
+    Some(IconData::Png(png_bytes))
 }
 
 fn icon_key(process: &str, app_name: &str) -> String {
@@ -630,6 +631,6 @@ mod desktop_tests {
         let icons = super::application_icons(apps.into());
         assert!(icons.values().all(|icon| icon
             .as_ref()
-            .is_some_and(|icon| icon.starts_with("data:image/"))));
+            .is_some_and(|icon| matches!(icon, super::IconData::Png(bytes) | super::IconData::Svg(bytes) if !bytes.is_empty()))));
     }
 }

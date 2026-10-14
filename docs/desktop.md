@@ -22,11 +22,20 @@ whole day). Repeated visits are combined; click again to collapse the list.
 Browser pages currently use recorded window titles; exact URLs require the
 browser integration planned for M9.
 
+The horizontal divider between the timeline and summary can be dragged up/down
+to change their heights; Alt+Up/Down does the same when no tag editor is open.
+The split is retained while the app is running, including hide/reopen. Scroll
+the timeline panel vertically when it is reduced (use its scrollbar or wheel
+over the track labels; wheel over the canvas still zooms).
+
 Settings can select the next-launch data folder and enable **Start Draugr Time
 when I log in**. Startup launches with `--autostart --minimized`. After moving
 or renaming the executable, toggle startup again to register its current path.
 
-Linux uses GTK/AppIndicator for the tray and supports X11 and Wayland windows.
+Linux uses StatusNotifierItem over D-Bus (ksni) for the tray and xdg-desktop-portal
+for folder selection, with X11 and Wayland windows. Install the portal backend for
+your desktop. GNOME needs a StatusNotifierItem/AppIndicator shell extension.
+If the tray host is unavailable, closing the window quits instead of hiding it.
 Windows and macOS use native tray and icon providers. Real focus, idle,
 permissions, tray actions, folder selection and startup registration need
 manual verification on each OS; CI checks builds and diagnostic launches.

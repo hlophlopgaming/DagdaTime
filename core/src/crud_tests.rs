@@ -193,3 +193,42 @@ fn file_database_uses_write_ahead_log() {
         .unwrap();
     assert_eq!(mode, "wal");
 }
+
+#[test]
+fn typed_tag_queries_keep_boundaries_recent_history_and_delete_totals() {
+    let mut db = Storage::open_in_memory().unwrap();
+    db.tag_interval("Parent, Child", "note", 10, 30, false)
+        .unwrap();
+    db.tag_interval("Later", "", 100, 200, false).unwrap();
+    let tags = db.tags().unwrap();
+    let parent = tags.iter().find(|t| t.name == "Parent").unwrap().id;
+    let child = tags.iter().find(|t| t.name == "Child").unwrap().id;
+    let ranges = db.tag_ranges(20, 100).unwrap();
+    assert_eq!(ranges.len(), 1);
+    assert_eq!((ranges[0].start_ts, ranges[0].end_ts), (10, 30));
+    assert_eq!(ranges[0].note.as_deref(), Some("note"));
+    assert!(db.tag_ranges(30, 100).unwrap().is_empty());
+    assert!(db.tag_ranges(-1, 10).is_err());
+    assert!(db.tag_ranges(10, 10).is_err());
+    assert_eq!(db.recent_tag_ids().unwrap().len(), 2);
+    assert_eq!(db.tag_tree_usage(parent).unwrap(), (1, 20));
+    assert_eq!(db.tag_tree_usage(child).unwrap(), (1, 20));
+    let cache: i64 = db
+        .connection
+        .query_row("PRAGMA cache_size", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(cache, -512);
+    let index: i64 = db
+        .connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name='idx_tag_ranges_start'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(index, 1);
+    let plan: Vec<String> = db.connection.prepare("EXPLAIN QUERY PLAN SELECT id,tag_id,start_ts,end_ts,note FROM tag_ranges WHERE start_ts < ?2 AND end_ts > ?1 ORDER BY start_ts,id").unwrap().query_map(params![20,100], |r| r.get(3)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert!(plan
+        .iter()
+        .any(|step| step.contains("idx_tag_ranges_start")));
+}

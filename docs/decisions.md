@@ -437,3 +437,175 @@ as AFK. Adjacent AFK samples with different diagnostic health merge for the prom
 Prompts start at 15 minutes, have recent-tag shortcuts, and can be disabled or
 changed to 30/60 minutes. The threshold persists locally in `away-prompt.json`.
 Already completed intervals at application startup are not prompted again.
+
+
+## 2026-10-14 — M5.5 desktop memory lifecycle
+
+Use tray-icon's existing `ksni` feature on Linux instead of libappindicator/GTK3,
+and rfd's xdg-portal + async-std (async-io) backend for folder selection. Keep the
+native menu API and Windows/macOS providers. This removes GTK, GDK, Pango and
+Cairo from the application's dependencies. Do not enable rfd's Tokio backend:
+Cargo unifies zbus features across the portal, tray and watchers, and that backend
+makes existing blocking calls outside a Tokio runtime panic. A private-bus SNI
+fixture covers real menu dispatch; lifecycle diagnostics provide a fixture host
+only when no panel exists, and log that distinction explicitly.
+
+Start-minimized launches with no window or renderer. Close invalidates pending
+loads and releases day tracks, summaries, search strings, tag metadata and icon
+handles; unsaved editing state, selection, away prompt, metrics and undo remain.
+Reopen reloads the day. Linux/glibc calls malloc_trim(0) behind MemoryReclaimer
+when Iced emits Closed, after it drops window/compositor resources, and when a
+late stale load is dropped without a window. Other platforms use a no-op.
+Do not introduce a different global allocator.
+
+Lowercase search strings exist only during a nonempty search and are shared by
+Arc allocation identity. Cache entries retain the Arc to prevent pointer reuse;
+every rebuild discards entries no longer referenced by the current tracks.
+The previous incremental loader already truncated search entries at replace_from;
+a regression test preserves correct results after changing a tail's title/app.
+
+Read Tag/TagRange directly from SQLite; load only half-open intervals overlapping
+the selected day, preserving original cross-day bounds. Migration 003 adds a
+start_ts index. Recent-tag IDs and subtree delete totals use separate focused
+queries; delete totals stream intervals and union their duration. Saving edits
+checks overlaps against the requested bounds, not just the displayed day.
+API JSON contracts are unchanged. SQLite cache_size=-512 bounds its suggested
+page-cache budget per connection; it is not a hard cap on all SQLite memory.
+
+Pass PNG/SVG bytes to Iced without base64, retain only icon availability in the
+provider cache and known identities in the load cursor. Keep Status typed through
+worker/UI/tray; JSON serialization remains at API/storage boundaries. One bounded
+day-loading worker replaces Tokio spawn_blocking for snapshots. Theme and folder
+operations retain their existing executor paths.
+
+Measurements and platform checks: [desktop-memory.md](desktop-memory.md).
+
+
+## 2026-10-14 — Separate Day overview in M7
+
+Add the user-requested visual Day overview to M7 alongside reports, Week view,
+export/import and CLI. Preserve the existing Day view for range selection and
+editing; the overview summarizes active time with project/tag and application
+rings, a duration legend and a compact full-day timeline. Use the existing Iced
+canvas and interval calculations, with rendering-independent aggregates shared
+with equivalent reports/CLI. This provides a visual summary without duplicating
+tracking or changing the main editing workflow. Scope and acceptance criteria
+are in PLAN.md §5.5 and M7; the supplied image is retained in
+[day-overview-reference.png](references/day-overview-reference.png).
+
+
+## 2026-10-14 — M5.6 resizable Day panels
+
+Use Iced's existing PaneGrid for a horizontal divider between the activity
+timeline and selection summary. Keep minimum pane height at 160 logical pixels,
+with native hover/drag feedback and resize cursor. Alt+Up/Down adjusts the ratio
+by five percentage points. Store only the two-pane layout in desktop State so
+it survives day changes and hide/reopen within the process; no new dependencies,
+database fields or persisted preferences are needed for this request.
+
+Keep fixed timeline track heights and put the timeline content in a vertical
+scrollable when its pane is reduced. This preserves alignment of labels, canvas
+geometry and hit-testing, while the existing summary scrolls independently.
+Panel resizing does not change the selected range, zoom, search or event data.
+The separate chart-based overview remains scoped to M7. Native pointer-event tests
+verify resize cursor and divider drag without accidental time selection. Local
+Linux/Wayland fixture smoke, runtime and hide/reopen checks passed; real pointer
+checks on Windows/macOS/X11 and persisted restart preferences are not included.
+
+## 2026-10-14 — M6 rule assignment and safe history undo
+
+Keep regex assignment in core Storage and call it from both Tracker and the
+Rules screen. Clip matching window/web context to observed awake, unlocked,
+active intervals with recording/unobserved health; use legacy AFK observations
+only when there is no computer evidence in the queried interval. Larger
+priority wins and the oldest rule ID resolves ties. Existing tag ranges win,
+including previous automatic assignments; changes to rules affect future
+recording and uncovered history, rather than silently rewriting manual edits.
+Disabled rules and archived target tags do not assign time. URL matching is
+ready for locally recorded web events; browser capture itself remains M9.
+
+Add migration 004 for an enabled flag without modifying earlier migrations.
+Validate regex syntax and cap compiled regex size with Rust's regex library.
+Background assignments merge only the current automatically inserted tail
+while its metadata revision and stored bounds are unchanged. Do not infer
+activity across missing samples, pause, sleep, lock or unknown recording gaps.
+
+Recompute history application inside an immediate write transaction and compare
+with the confirmed preview. Retain only inserted rows in its undo record, and
+verify those rows before removing them; later unrelated tracking/manual edits
+must survive undo. Keep the existing bounded, process-local undo stack.
+
+## 2026-10-14 — M6 local translations and OS language selection
+
+Per the user's expanded scope, bundle eight catalogs: en, ru, de, fr, es, pt,
+zh (Simplified) and ja. Use English source text as stable keys with named
+placeholders and localized short duration units, avoiding plural inflection
+for compact timeline/report labels. A catalog test verifies complete key sets
+and matching placeholder names across all eight languages. User-entered tag
+names, notes, document titles, executable names and stored API values stay intact.
+Raw OS/library diagnostic details remain verbatim under translated error labels;
+missing translations and unsupported languages fall back to English.
+
+Read OS language behind LocaleProvider: Linux locale environment, macOS
+AppleLanguages via the local defaults command, Windows user UI language via
+kernel32. An explicit language overrides detection; choosing System default
+redetects it. Persist an atomic language.json in the default application-data
+folder, separately from the history folder selector. Rebuild canvas and tray
+labels immediately when the language changes. Use local system fonts for CJK
+fallback; native font coverage and translation quality require platform checks.
+
+## 2026-10-14 — M7 reports, overview and local interchange
+
+Keep the time partition in core::Report, independent of Iced. Sweep half-open
+UTC millisecond boundaries of observed activity, application/web context and tag
+ranges; count each active millisecond once. Use the highest tag-range ID for an
+overlap, roll its tag up to the top-level project, and retain explicit Untagged,
+Unknown application and Unknown document groups. Awake/unlocked active time with
+unobserved window health remains active, with unknown context; sleep, off, AFK,
+pause, stopped collection and unexplained gaps do not become work. Legacy AFK
+ends at the first computer observation globally, including on later queries and
+exports. Auto-tagging reuses the same observed-active predicate.
+
+The editing Day view retains its existing summaries and selection behavior.
+The overview converts its already classified tracks into the same core partition;
+Week, Reports and CLI query core Storage directly. Reports use active time as
+the denominator and top-level projects as tag groups/filters. GUI date ranges
+and CLI calendar dates use consecutive local midnights, so DST days may have
+23 or 25 hours; persisted/exported timestamps stay UTC milliseconds.
+
+Use the existing Iced canvas for the donut and compact timelines, native legend
+buttons plus explicit arrow-key highlighting, and bundled translations. Collapse
+application slices smaller than 2% of the day's total into Other per project;
+list their names and allow expansion without changing totals. Load report ranges
+on a blocking worker, discard stale generations, and release cached report/day
+partitions when the window closes. GUI custom ranges are capped at 366 days;
+the existing 100,000-event query limit remains explicit for both GUI and CLI.
+
+JSON export is a versioned history archive (events, tags and tag ranges), whereas
+CSV is an aggregated report. Import supports that archive and ActivityWatch
+currentwindow, afkstatus and web.tab.current buckets. Validate tags through the
+existing CRUD boundary, remap IDs, then insert everything in one transaction.
+Reject conflicting/overlapping event buckets and unsupported ActivityWatch bucket
+types rather than silently losing multi-host data or breaking indexed queries.
+Import never replaces existing history. No schema changes are required.
+
+Ship draugr-time-cli as a separate console executable, particularly for Windows
+where the GUI binary has the windows subsystem. It does not initialize Iced,
+watchers, tray or autostart. Status alone reads the authenticated localhost API;
+reports/export/import use the selected local database. No remote calls or new
+third-party libraries were added; core reuses the installed chrono dependency
+for ActivityWatch RFC3339 timestamps.
+
+## 2026-10-14 — v0.2.0 branding and console distribution
+
+Use the owner's four original PNG assets unchanged. README pictures select dark
+or light variants; the native sidebar and About panel select the Draugr logo by
+UI theme. Set the native window icon from the supplied Draugr image. The tray
+uses the supplied crown's alpha mask at 32×32 with nearest-neighbor scaling and
+the existing state colors, preserving tracking/paused/away/error feedback.
+No downloaded assets or new image dependencies are needed.
+
+Package the existing console binary alongside the GUI in every platform release
+archive. Keep personal monthly reports and database verification snapshots under
+/tmp, outside the published source tree. Ship the accumulated M5.5/M5.6/M6/M7 work
+as v0.2.0; browser capture and installers remain future milestones.

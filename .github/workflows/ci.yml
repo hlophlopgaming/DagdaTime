@@ -25,11 +25,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libgtk-3-dev libayatana-appindicator3-dev libxkbcommon-x11-dev librsvg2-dev xvfb
+          sudo apt-get install -y build-essential libxkbcommon-x11-dev librsvg2-dev xvfb
       - run: python -m unittest discover -s tests
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - name: Verify Linux StatusNotifierItem menu without a GUI
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- cargo test --package draugr-time native_ksni_menu_dispatches_without_gui_ticks -- --ignored --test-threads=1
       - name: Verify native X11 watcher and debug polling
         if: runner.os == 'Linux'
         run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package draugr-time-watchers --package draugr-time-daemon -- --ignored --test-threads=1
@@ -58,13 +61,15 @@ jobs:
             $process = Start-Process target/release/draugr-time.exe -ArgumentList $mode -PassThru -Wait
             if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           }
-      - name: Upload desktop executable
+      - name: Upload desktop and CLI executables
         uses: actions/upload-artifact@v4
         with:
           name: Draugr-Time-${{ runner.os }}
           path: |
             target/release/draugr-time
             target/release/draugr-time.exe
+            target/release/draugr-time-cli
+            target/release/draugr-time-cli.exe
           if-no-files-found: error
 
   release:
@@ -81,11 +86,11 @@ jobs:
       - name: Package desktop binaries
         run: |
           mkdir -p release
-          chmod +x artifacts/Draugr-Time-Linux/draugr-time artifacts/Draugr-Time-macOS/draugr-time
-          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time
-          tar -C artifacts/Draugr-Time-macOS -czf release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz draugr-time
+          chmod +x artifacts/Draugr-Time-{Linux,macOS}/draugr-time artifacts/Draugr-Time-{Linux,macOS}/draugr-time-cli
+          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time draugr-time-cli
+          tar -C artifacts/Draugr-Time-macOS -czf release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz draugr-time draugr-time-cli
           cd artifacts/Draugr-Time-Windows
-          zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe
+          zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe draugr-time-cli.exe
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

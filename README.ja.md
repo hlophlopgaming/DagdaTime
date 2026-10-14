@@ -1,5 +1,14 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteDraugr128.png">
+  <img src="logo/blackDraugr128.png" alt="Draugr Time" width="96" height="96">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteCrown128.png">
+  <img src="logo/blackCrown128.png" alt="Draugr Time tray crown" width="32" height="32">
+</picture>
+
 # Draugr Time
 
 ### オープンソースでクロスプラットフォームな ManicTime の代替
@@ -21,7 +30,7 @@
 ---
 
 > [!IMPORTANT]
-> **Draugr Time は開発の初期段階です。** ネイティブ Iced UI でアクティビティ記録と日別タイムラインが利用できます。タグ編集、ルール、レポートは今後の予定です。[ロードマップ](#ロードマップ)をご覧ください。
+> **Draugr Time は開発の初期段階です。** ネイティブ Iced UI でアクティビティ記録と日別タイムラインが利用できます。タグ編集とルールも利用できます。日の概要、月間レポート、CSV/JSON、ActivityWatchのインポートが利用できます。[ロードマップ](#ロードマップ)をご覧ください。
 > ⭐ **Star** を付けるか 👀 **Watch** を有効にして、進捗と最初のリリースをチェックしてください。
 
 ## なぜ Draugr Time？
@@ -45,9 +54,9 @@
 | 価格 | ✅ 無料 | 無料版 + 有料 Pro 版 | ✅ 無料 |
 | データは自分のマシンに保存 | ✅ | ✅ | ✅ |
 | タイムライン上での時間範囲の手動タグ付け | 🚧 予定 (M5) | ✅ | ルールベースのカテゴリ |
-| 自動タグ付けルール（アプリ / タイトル / URL） | 🚧 予定 (M6) | ✅ | ✅ |
+| 自動タグ付けルール（アプリ / タイトル / URL） | ✅ M6 | ✅ | ✅ |
 | ネイティブ Wayland バックエンド | ✅ GNOME/KDE/wlroots | — | 限定的 |
-| ActivityWatch からのインポート | 🚧 予定 (M7) | ❌ | — |
+| ActivityWatch からのインポート | ✅ | ❌ | — |
 
 Draugr Time のイベント形式は ActivityWatch と互換性があるため、これまでの履歴を引き継げます。
 
@@ -60,8 +69,8 @@ Draugr Time のイベント形式は ActivityWatch と互換性があるため�
 - [x] **M3.5** アプリの骨組み：メインウィンドウ、ナビゲーション、記録ステータス、一時停止/再開付きのトレイアイコン
 - [x] **M4** 日表示：タイムライン、範囲選択、サマリーパネル（ManicTime と同様）
 - [ ] **M5** タグ：タイムライン上で範囲を選択 → プロジェクトを割り当て
-- [ ] **M6** 自動タグ付けルール
-- [ ] **M7** レポート、CSV/JSON エクスポート、ActivityWatch からのインポート
+- [x] **M6** 自動タグ付け、プレビュー、取り消し、8言語のUI — [M6](docs/m6.md)
+- [x] **M7** レポート、CSV/JSON エクスポート、ActivityWatch からのインポート
 - [ ] **M9** URL 記録用のブラウザ拡張機能（Firefox、Chromium）
 - [ ] **M10** 初回起動ガイド、プライバシー設定、バックアップ、インストーラー (MSI, DMG, AppImage/Flatpak)
 - [ ] **その後** スクリーンショット、データベース暗号化、複数デバイス間の同期
@@ -111,7 +120,7 @@ cargo run --package draugr-time
 <details>
 <summary><b>ManicTime や ActivityWatch のデータをインポートできますか？</b></summary>
 
-ActivityWatch からのインポートは M7 で予定しています。ManicTime からのインポートは検討中です。必要な場合は issue を作成してください。
+ActivityWatchのインポートが利用できます。[M7](docs/m7.md)をご覧ください。ManicTime からのインポートは検討中です。必要な場合は issue を作成してください。
 </details>
 
 <details>
@@ -137,3 +146,5 @@ Draugr Time が役に立ちそうだと思ったら、**Star が他の人に見�
 [GPL-3.0](LICENSE)
 
 <sub>ManicTime、RescueTime、Timing、WakaTime はそれぞれの所有者の商標です。Draugr Time は独立したプロジェクトであり、これらとは一切関係ありません。</sub>
+
+[M7: Overview / Week / Reports / CLI](docs/m7.md).

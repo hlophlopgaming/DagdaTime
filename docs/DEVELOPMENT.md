@@ -3,8 +3,8 @@
 One native Iced executable contains the window, tray, watchers, SQLite storage
 and localhost API. It uses the tiny-skia software renderer.
 
-Install stable Rust. Linux needs GTK 3, Ayatana AppIndicator, librsvg and
-libxkbcommon-x11 development packages. Windows needs MSVC; macOS needs Xcode
+Install stable Rust. Linux needs librsvg and libxkbcommon-x11 development packages,
+a StatusNotifierItem tray host and xdg-desktop-portal with a desktop backend. Windows needs MSVC; macOS needs Xcode
 command-line tools.
 
 ```sh
@@ -56,3 +56,14 @@ bridges on Wayland. See [wayland.md](wayland.md), [desktop.md](desktop.md),
 [PLAN.md](../PLAN.md), and [decisions.md](decisions.md).
 
 All application network traffic stays on localhost. No telemetry.
+
+M5.5 memory measurements and remaining checks are in [desktop-memory.md](desktop-memory.md).
+The Linux SNI menu test runs on a private bus:
+
+```sh
+dbus-run-session -- cargo test --package draugr-time native_ksni_menu_dispatches_without_gui_ticks -- --ignored --test-threads=1
+```
+
+Linux lifecycle diagnostics create an explicitly logged fixture SNI host when the
+private test bus has no desktop panel. This verifies tray transport and window
+lifecycle; it does not replace checking the actual panel and portal UI.

@@ -37,6 +37,7 @@ pub struct Editor {
     pub archived: bool,
     pub overlap: bool,
     pub confirm_delete: bool,
+    pub delete_usage: Option<(usize, i64)>,
 }
 #[derive(Clone, Debug)]
 pub enum Edit {
@@ -147,15 +148,12 @@ impl State {
                 return self.edit(Edit::Save(false));
             }
             Edit::Range(id) => {
-                if let Some(range) = self.tag_ranges.iter().find(|r| r["id"] == id) {
-                    self.selection = Some(Range::new(
-                        range["start_ts"].as_i64().unwrap(),
-                        range["end_ts"].as_i64().unwrap(),
-                    ));
+                if let Some(range) = self.tag_ranges.iter().find(|r| r.id == id) {
+                    self.selection = Some(Range::new(range.start_ts, range.end_ts));
                     self.editor = Some(Editor {
                         range_id: Some(id),
-                        name: model::tag_path(&self.tags, range["tag_id"].as_i64().unwrap()),
-                        note: range["note"].as_str().unwrap_or("").into(),
+                        name: model::tag_path(&self.tags, range.tag_id),
+                        note: range.note.as_deref().unwrap_or("").into(),
                         start: local_timestamp(self.selection.unwrap().start),
                         end: local_timestamp(self.selection.unwrap().end),
                         ..Editor::default()
@@ -191,15 +189,28 @@ impl State {
                         .and_then(|start| timestamp(&e.end).map(|end| (start, end)));
                     match bounds {
                         Ok((start, end)) => {
-                            if !e.overlap
-                                && self.tag_ranges.iter().any(|r| {
-                                    r["id"].as_i64() != e.range_id
-                                        && r["start_ts"].as_i64().unwrap() < end
-                                        && r["end_ts"].as_i64().unwrap() > start
-                                })
-                            {
-                                e.overlap = true;
-                                return Task::none();
+                            if !e.overlap {
+                                let overlaps = self.runtime.as_ref().map(|runtime| {
+                                    runtime
+                                        .shared
+                                        .storage
+                                        .lock()
+                                        .unwrap()
+                                        .tag_ranges(start, end)
+                                });
+                                match overlaps {
+                                    Some(Ok(ranges))
+                                        if ranges.iter().any(|r| Some(r.id) != e.range_id) =>
+                                    {
+                                        e.overlap = true;
+                                        return Task::none();
+                                    }
+                                    Some(Err(error)) => {
+                                        self.error = error.to_string();
+                                        return Task::none();
+                                    }
+                                    _ => {}
+                                }
                             }
                             let (id, name, note) = (e.range_id, e.name.clone(), e.note.clone());
                             self.tag_write(|db| {
@@ -234,12 +245,12 @@ impl State {
                 }
             }
             Edit::Tag(id) => {
-                if let Some(t) = self.tags.iter().find(|t| t["id"] == id) {
+                if let Some(t) = self.tags.iter().find(|t| t.id == id) {
                     self.editor = Some(Editor {
                         tag_id: Some(id),
-                        name: t["name"].as_str().unwrap_or("").into(),
-                        color: t["color"].as_str().unwrap_or("").into(),
-                        archived: t["archived"] == 1,
+                        name: t.name.as_str().into(),
+                        color: t.color.as_deref().unwrap_or("").into(),
+                        archived: t.archived == 1,
                         ..Editor::default()
                     });
                 }
@@ -276,12 +287,20 @@ impl State {
             }
             Edit::DeleteTag(confirm) => {
                 if let Some(e) = &mut self.editor {
-                    if confirm {
+                    if confirm && e.confirm_delete {
                         if let Some(id) = e.tag_id {
                             self.tag_write(|db| db.delete_tag_tree(id));
                         }
                     } else {
-                        e.confirm_delete = true;
+                        if let (Some(runtime), Some(id)) = (&self.runtime, e.tag_id) {
+                            match runtime.shared.storage.lock().unwrap().tag_tree_usage(id) {
+                                Ok(usage) => {
+                                    e.delete_usage = Some(usage);
+                                    e.confirm_delete = true;
+                                }
+                                Err(error) => self.error = error.to_string(),
+                            }
+                        }
                     }
                 }
             }
@@ -319,79 +338,55 @@ impl State {
         };
         let edit = |e| Message::Edit(e);
         let mut body = column![
-            text(if e.tag_id.is_some() {
+            text(tr(if e.tag_id.is_some() {
                 "Edit tag"
             } else {
                 "Tag selection"
-            })
+            }))
             .size(18),
-            text_input("Client, Project, Task", &e.name)
+            text_input(&tr("Client, Project, Task"), &e.name)
                 .id("tag-name")
                 .on_input(move |v| edit(Edit::Name(v)))
         ]
         .spacing(8);
-        if let Some(tag_id) = e.tag_id {
+        if e.tag_id.is_some() {
             body = body
                 .push(
-                    text_input("#RRGGBB (optional)", &e.color)
+                    text_input(&tr("#RRGGBB (optional)"), &e.color)
                         .on_input(move |v| edit(Edit::Color(v))),
                 )
                 .push(
                     checkbox(e.archived)
-                        .label("Archived (history retained)")
+                        .label(tr("Archived (history retained)"))
                         .on_toggle(move |v| edit(Edit::Archive(v))),
                 );
             body = body.push(
                 row![
-                    button("Save").on_press(edit(Edit::SaveTag)),
-                    button("Delete…").on_press(edit(Edit::DeleteTag(false))),
-                    button("Cancel").on_press(edit(Edit::Cancel))
+                    button(text(tr("Save"))).on_press(edit(Edit::SaveTag)),
+                    button(text(tr("Delete…"))).on_press(edit(Edit::DeleteTag(false))),
+                    button(text(tr("Cancel"))).on_press(edit(Edit::Cancel))
                 ]
                 .spacing(8),
             );
             if e.confirm_delete {
-                let mut ids = vec![tag_id];
-                loop {
-                    let old = ids.len();
-                    for t in &self.tags {
-                        if t["parent_id"].as_i64().is_some_and(|id| ids.contains(&id)) {
-                            let id = t["id"].as_i64().unwrap();
-                            if !ids.contains(&id) {
-                                ids.push(id);
-                            }
-                        }
-                    }
-                    if old == ids.len() {
-                        break;
-                    }
-                }
-                let ranges: Vec<_> = self
-                    .tag_ranges
-                    .iter()
-                    .filter(|r| r["tag_id"].as_i64().is_some_and(|id| ids.contains(&id)))
-                    .map(|r| {
-                        Range::new(
-                            r["start_ts"].as_i64().unwrap(),
-                            r["end_ts"].as_i64().unwrap(),
-                        )
-                    })
-                    .collect();
-                let duration = model::union_duration(&ranges, Range::new(0, i64::MAX));
+                let (count, duration) = e.delete_usage.unwrap_or_default();
                 body = body
-                    .push(text(format!(
-                        "Delete this subtree, {} ranges ({}) and its rules?",
-                        ranges.len(),
-                        model::duration(duration)
+                    .push(text(localized(
+                        "Delete this subtree, {count} ranges ({duration}) and its rules?",
+                        &[
+                            ("count", count.to_string()),
+                            ("duration", model::duration(duration)),
+                        ],
                     )))
                     .push(
-                        button("Confirm delete")
+                        button(text(tr("Confirm delete")))
                             .on_press(edit(Edit::DeleteTag(true)))
                             .style(button::danger),
                     );
             }
-            body = body.push(text("Merge into (moves history, children and rules):"));
+            body = body.push(text(tr("Merge into (moves history, children and rules):")));
             for t in &self.tags {
-                let id = t["id"].as_i64().unwrap();
+                let id = t.id;
                 if Some(id) != e.tag_id {
                     body = body.push(
                         button(text(model::tag_path(&self.tags, id)))
@@ -401,27 +396,16 @@ impl State {
             }
         } else {
             let query = e.name.to_lowercase();
-            let mut suggestions = Vec::new();
-            for r in self.tag_ranges.iter().rev() {
-                if let Some(id) = r["tag_id"].as_i64() {
-                    if !suggestions.contains(&id) {
-                        suggestions.push(id);
-                    }
-                }
-            }
+            let mut suggestions = self.recent_tags.clone();
             for t in &self.tags {
-                let id = t["id"].as_i64().unwrap();
+                let id = t.id;
                 if !suggestions.contains(&id) {
                     suggestions.push(id);
                 }
             }
             for id in suggestions
                 .into_iter()
-                .filter(|id| {
-                    self.tags
-                        .iter()
-                        .any(|t| t["id"] == *id && t["archived"] != 1)
-                })
+                .filter(|id| self.tags.iter().any(|t| t.id == *id && t.archived != 1))
                 .filter(|id| {
                     model::tag_path(&self.tags, *id)
                         .to_lowercase()
@@ -433,64 +417,70 @@ impl State {
                 body = body.push(button(text(name.clone())).on_press(edit(Edit::Name(name))));
             }
             body = body
-                .push(text_input("Note (optional)", &e.note).on_input(move |v| edit(Edit::Note(v))))
-                .push(text(
+                .push(
+                    text_input(&tr("Note (optional)"), &e.note)
+                        .on_input(move |v| edit(Edit::Note(v))),
+                )
+                .push(text(tr(
                     "Local date/time with timezone; changing bounds moves or resizes the block",
-                ))
+                )))
                 .push(
                     row![
-                        text_input("Start", &e.start).on_input(move |v| edit(Edit::Start(v))),
-                        text_input("End", &e.end).on_input(move |v| edit(Edit::End(v)))
+                        text_input(&tr("Start"), &e.start).on_input(move |v| edit(Edit::Start(v))),
+                        text_input(&tr("End"), &e.end).on_input(move |v| edit(Edit::End(v)))
                     ]
                     .spacing(8),
                 );
-            let mut actions = row![
-                button(if e.overlap {
+            let mut actions = column![
+                button(text(tr(if e.overlap {
                     "Split existing blocks around selection"
                 } else {
                     "Save"
-                })
+                })))
                 .on_press(edit(Edit::Save(false))),
-                button("Cancel").on_press(edit(Edit::Cancel))
+                button(text(tr("Cancel"))).on_press(edit(Edit::Cancel))
             ]
             .spacing(8);
             if e.overlap {
-                body = body.push(text(
+                body = body.push(text(tr(
                     "Selection overlaps existing tags. Choose how to handle them.",
-                ));
-                actions = actions
-                    .push(button("Replace intersecting blocks").on_press(edit(Edit::Save(true))));
+                )));
+                actions = actions.push(
+                    button(text(tr("Replace intersecting blocks")))
+                        .on_press(edit(Edit::Save(true))),
+                );
             }
             if e.range_id.is_some() {
-                actions = actions.push(button("Delete block").on_press(edit(Edit::DeleteRange)));
+                actions = actions
+                    .push(button(text(tr("Delete block"))).on_press(edit(Edit::DeleteRange)));
             }
             body = body.push(actions);
         }
         container(body).padding(12).style(panel).into()
     }
     pub fn tags_view(&self) -> Element<'_, Message> {
-        let mut body =
-            column![
-                text("Tags · select a tag to rename, color, archive, merge or delete").size(16)
-            ]
-            .spacing(6);
+        let mut body = column![text(tr(
+            "Tags · select a tag to rename, color, archive, merge or delete"
+        ))
+        .size(16)]
+        .spacing(6);
         if self.tags.is_empty() {
-            body = body.push(text(
+            body = body.push(text(tr(
                 "No tags yet. Select time in Day and press Enter to create one.",
-            ));
+            )));
         }
         let mut tags: Vec<_> = self.tags.iter().collect();
-        tags.sort_by_key(|t| model::tag_path(&self.tags, t["id"].as_i64().unwrap()));
+        tags.sort_by_key(|t| model::tag_path(&self.tags, t.id));
         for tag in tags {
-            let id = tag["id"].as_i64().unwrap();
+            let id = tag.id;
             body = body.push(
                 button(text(format!(
                     "{}{}",
                     model::tag_path(&self.tags, id),
-                    if tag["archived"] == 1 {
-                        " (archived)"
+                    if tag.archived == 1 {
+                        tr(" (archived)")
                     } else {
-                        ""
+                        String::new()
                     }
                 )))
                 .on_press(Message::Edit(Edit::Tag(id))),

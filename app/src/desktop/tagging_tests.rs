@@ -19,10 +19,10 @@ fn away_prompt_threshold_and_duplicate_suppression() {
 fn tag_totals_clip_at_day_boundaries_and_union_overlaps() {
     let tracks = model::tracks(
         &[],
-        &[json!({"id":1,"name":"Work"})],
+        &[serde_json::from_value(json!({"id":1,"name":"Work"})).unwrap()],
         &[
-            json!({"id":1,"tag_id":1,"start_ts":0,"end_ts":200}),
-            json!({"id":2,"tag_id":1,"start_ts":150,"end_ts":350}),
+            serde_json::from_value(json!({"id":1,"tag_id":1,"start_ts":0,"end_ts":200})).unwrap(),
+            serde_json::from_value(json!({"id":2,"tag_id":1,"start_ts":150,"end_ts":350})).unwrap(),
         ],
         Range::new(100, 300),
     );
@@ -161,10 +161,39 @@ fn return_status_prompts_while_window_is_hidden_on_a_historical_day() {
     state.window = None;
     state.date = state.date.pred_opt().unwrap();
     state.away_prompt = Default::default();
-    state.status = json!({"computer":{"activity":"away"}});
-    let _ = state.update(Message::Tray(tray::Event::Status(
-        json!({"computer":{"activity":"active"}}),
-    )));
+    state.status.computer.activity = "away".into();
+    let mut status = state.status.clone();
+    status.computer.activity = "active".into();
+    let _ = state.update(Message::Tray(tray::Event::Status(status.into())));
     assert_eq!(state.away_range, Some(Range::new(1000, 901_000)));
     assert!(state.window.is_some());
+}
+
+#[test]
+fn scoped_metadata_preserves_global_delete_confirmation_and_outside_day_overlap() {
+    use draugr_time_core::Storage;
+    use draugr_time_daemon::Shared;
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage
+        .tag_interval("Project", "", 100, 200, false)
+        .unwrap();
+    storage
+        .tag_interval("Project", "", 1000, 1100, false)
+        .unwrap();
+    let shared = Shared::new(storage, "test".into(), 300);
+    let (mut state, _) = State::boot();
+    state.day = Range::new(100, 300);
+    state.runtime = Some(Runtime::for_test(shared.clone()));
+    let snapshot = Runtime::load(shared, state.day, Default::default()).unwrap();
+    let _ = state.update(Message::Loaded(state.load_generation, Ok(snapshot)));
+    assert_eq!(state.tag_ranges.len(), 1);
+    let tag = state.tags[0].id;
+    let _ = state.edit(tagging::Edit::Tag(tag));
+    let _ = state.edit(tagging::Edit::DeleteTag(false));
+    assert_eq!(state.editor.as_ref().unwrap().delete_usage, Some((2, 200)));
+    state.selection = Some(Range::new(1000, 1100));
+    let _ = state.edit(tagging::Edit::Open);
+    let _ = state.edit(tagging::Edit::Name("Other".into()));
+    let _ = state.edit(tagging::Edit::Save(false));
+    assert!(state.editor.as_ref().unwrap().overlap);
 }

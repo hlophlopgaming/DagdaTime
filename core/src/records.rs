@@ -1,6 +1,24 @@
 use super::*;
 use rusqlite::types::Value as SqlValue;
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
+    pub color: Option<String>,
+    pub parent_id: Option<i64>,
+    #[serde(default)]
+    pub archived: i64,
+}
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TagRange {
+    pub id: i64,
+    pub tag_id: i64,
+    pub start_ts: i64,
+    pub end_ts: i64,
+    pub note: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Collection {
     Tags,
@@ -28,7 +46,7 @@ impl Collection {
         match self {
             Self::Tags => &["name", "color", "parent_id", "archived"],
             Self::TagRanges => &["tag_id", "start_ts", "end_ts", "note"],
-            Self::Rules => &["field", "pattern", "tag_id", "priority"],
+            Self::Rules => &["field", "pattern", "tag_id", "priority", "enabled"],
         }
     }
     pub(crate) fn select(self) -> String {
@@ -100,6 +118,64 @@ impl Storage {
         let batch = self.batch()?;
         batch.extend_last(bucket, ts, max_gap)?;
         batch.commit()
+    }
+
+    pub fn tags(&self) -> Result<Vec<Tag>, StorageError> {
+        let mut query = self
+            .connection
+            .prepare("SELECT id,name,color,parent_id,archived FROM tags ORDER BY id")?;
+        let result = query
+            .query_map([], |r| {
+                Ok(Tag {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    color: r.get(2)?,
+                    parent_id: r.get(3)?,
+                    archived: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(result)
+    }
+    /// Half-open overlap query; preserve original bounds for cross-day editing.
+    pub fn tag_ranges(&self, from: i64, to: i64) -> Result<Vec<TagRange>, StorageError> {
+        if from < 0 || to <= from {
+            return Err(invalid("expected 0 <= from < to"));
+        }
+        let mut query = self.connection.prepare_cached("SELECT id,tag_id,start_ts,end_ts,note FROM tag_ranges WHERE start_ts < ?2 AND end_ts > ?1 ORDER BY start_ts,id")?;
+        let result = query
+            .query_map(params![from, to], |r| {
+                Ok(TagRange {
+                    id: r.get(0)?,
+                    tag_id: r.get(1)?,
+                    start_ts: r.get(2)?,
+                    end_ts: r.get(3)?,
+                    note: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(result)
+    }
+    pub fn recent_tag_ids(&self) -> Result<Vec<i64>, StorageError> {
+        let mut query = self.connection.prepare("SELECT tag_id FROM tag_ranges JOIN tags ON tags.id=tag_id WHERE archived=0 GROUP BY tag_id ORDER BY MAX(tag_ranges.id) DESC LIMIT 6")?;
+        let result = query
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(result)
+    }
+    /// Stream all affected intervals so delete confirmation stays accurate without retaining history.
+    pub fn tag_tree_usage(&self, id: i64) -> Result<(usize, i64), StorageError> {
+        let mut query = self.connection.prepare("WITH RECURSIVE subtree(id) AS (SELECT id FROM tags WHERE id=?1 UNION SELECT tags.id FROM tags JOIN subtree ON parent_id=subtree.id) SELECT start_ts,end_ts FROM tag_ranges WHERE tag_id IN subtree ORDER BY start_ts,end_ts")?;
+        let mut rows = query.query([id])?;
+        let (mut count, mut duration, mut end) = (0, 0, 0);
+        while let Some(row) = rows.next()? {
+            let start: i64 = row.get(0)?;
+            let next: i64 = row.get(1)?;
+            duration += (next - start.max(end)).max(0);
+            end = end.max(next);
+            count += 1;
+        }
+        Ok((count, duration))
     }
 
     pub fn list(&self, collection: Collection) -> Result<Vec<Value>, StorageError> {
@@ -190,6 +266,16 @@ impl Storage {
             }
             Collection::Rules => {
                 object.entry("priority").or_insert(Value::from(0));
+                let enabled = object.entry("enabled").or_insert(Value::from(1));
+                if let Some(value) = enabled.as_bool() {
+                    *enabled = Value::from(i64::from(value));
+                }
+                if !matches!(enabled.as_i64(), Some(0 | 1)) {
+                    return Err(invalid("enabled must be boolean or 0/1"));
+                }
+                if let Some(pattern) = object.get("pattern").and_then(Value::as_str) {
+                    super::rules::compile(pattern)?;
+                }
                 if !object
                     .get("field")
                     .and_then(Value::as_str)

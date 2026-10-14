@@ -1,11 +1,10 @@
 use super::model::{self, Range, Track};
 use crate::icons;
-use draugr_time_core::{Collection, Storage};
+use draugr_time_core::{Storage, Tag, TagRange};
 use draugr_time_daemon::{now_ms, paths, Shared, Tracker};
 use draugr_time_watchers::{
     IdleWatcher, MockWatcher, NativeWatcher, WatcherError, WindowInfo, WindowWatcher,
 };
-use serde_json::Value;
 use std::{
     collections::HashMap,
     sync::mpsc,
@@ -16,26 +15,73 @@ use std::{
 pub struct LoadCursor {
     pub starts: HashMap<String, i64>,
     pub metadata_version: Option<(u64, i64)>,
+    pub icons: std::collections::HashSet<String>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     pub completed_afk: Option<Range>,
     pub tag_metadata: Option<Box<TagMetadata>>,
     pub tracks: Vec<Track>,
-    pub cursor: LoadCursor,
+    pub cursor: Box<LoadCursor>,
     pub replace_from: HashMap<String, i64>,
     pub tags_changed: bool,
-    pub icons: HashMap<String, Option<String>>,
+    pub icons: HashMap<String, Option<icons::IconData>>,
 }
 #[derive(Clone, Debug)]
 pub struct TagMetadata {
-    pub tags: Vec<Value>,
-    pub ranges: Vec<Value>,
+    pub tags: Vec<Tag>,
+    pub ranges: Vec<TagRange>,
+    pub recent: Vec<i64>,
+}
+struct LoadRequest {
+    range: Range,
+    cursor: LoadCursor,
+    result: tokio::sync::oneshot::Sender<Result<Snapshot, String>>,
+}
+pub struct Loader {
+    sender: mpsc::SyncSender<LoadRequest>,
+}
+impl Loader {
+    fn new(shared: Shared) -> Self {
+        let (sender, receiver) = mpsc::sync_channel::<LoadRequest>(1);
+        std::thread::spawn(move || {
+            while let Ok(request) = receiver.recv() {
+                if !request.result.is_closed() {
+                    let _ = request.result.send(Runtime::load(
+                        shared.clone(),
+                        request.range,
+                        request.cursor,
+                    ));
+                }
+            }
+        });
+        Self { sender }
+    }
+    pub fn load(
+        &self,
+        range: Range,
+        cursor: LoadCursor,
+    ) -> impl std::future::Future<Output = Result<Snapshot, String>> + Send + 'static {
+        let (result, receiver) = tokio::sync::oneshot::channel();
+        let submitted = self
+            .sender
+            .try_send(LoadRequest {
+                range,
+                cursor,
+                result,
+            })
+            .map_err(|error| error.to_string());
+        async move {
+            submitted?;
+            receiver.await.map_err(|error| error.to_string())?
+        }
+    }
 }
 pub struct Runtime {
     #[cfg(target_os = "macos")]
     _computer: Option<draugr_time_watchers::NativeComputerWatcher>,
     pub shared: Shared,
+    pub loader: Loader,
     #[cfg(target_os = "macos")]
     sampler: Sampler,
     #[cfg(target_os = "macos")]
@@ -45,6 +91,7 @@ impl Runtime {
     #[cfg(test)]
     pub fn for_test(shared: Shared) -> Self {
         Self {
+            loader: Loader::new(shared.clone()),
             shared,
             #[cfg(target_os = "macos")]
             _computer: None,
@@ -89,6 +136,7 @@ impl Runtime {
         Ok(Self {
             #[cfg(target_os = "macos")]
             _computer: computer,
+            loader: Loader::new(shared.clone()),
             shared,
             #[cfg(target_os = "macos")]
             sampler: Sampler::new(fixture),
@@ -101,8 +149,8 @@ impl Runtime {
         let sample = self.sampler.sample(&self.shared);
         let _ = self.sender.try_send((now_ms(), sample));
     }
-    pub fn status(&self) -> Value {
-        serde_json::to_value(self.shared.status()).unwrap_or(Value::Null)
+    pub fn status(&self) -> draugr_time_daemon::Status {
+        self.shared.status()
     }
     pub fn pause(&self, duration: Option<i64>) -> Result<(), String> {
         self.shared.pause(now_ms(), duration)
@@ -158,13 +206,18 @@ impl Runtime {
         }
         let (tags, ranges) = if tags_changed {
             (
-                storage.list(Collection::Tags).map_err(|e| e.to_string())?,
+                storage.tags().map_err(|e| e.to_string())?,
                 storage
-                    .list(Collection::TagRanges)
+                    .tag_ranges(range.start, range.end)
                     .map_err(|e| e.to_string())?,
             )
         } else {
             (Vec::new(), Vec::new())
+        };
+        let recent = if tags_changed {
+            storage.recent_tag_ids().map_err(|e| e.to_string())?
+        } else {
+            Vec::new()
         };
         drop(storage);
         cursor.metadata_version = Some(version);
@@ -172,7 +225,7 @@ impl Runtime {
         for track in &mut tracks {
             track.segments.retain(|s| s.bucket != "derived");
         }
-        let apps = tracks[2]
+        let apps: Vec<_> = tracks[2]
             .segments
             .iter()
             .filter_map(|segment| {
@@ -183,12 +236,23 @@ impl Runtime {
             })
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
+            .filter(|(process, name)| {
+                cursor
+                    .icons
+                    .insert(model::application_identity(process, name))
+            })
             .collect();
         Ok(Snapshot {
             completed_afk,
-            tag_metadata: tags_changed.then(|| Box::new(TagMetadata { tags, ranges })),
+            tag_metadata: tags_changed.then(|| {
+                Box::new(TagMetadata {
+                    tags,
+                    ranges,
+                    recent,
+                })
+            }),
             tracks,
-            cursor,
+            cursor: Box::new(cursor),
             replace_from,
             tags_changed,
             icons: icons::application_icons(apps),
@@ -290,7 +354,7 @@ fn spawn_worker(
         let _receiver = receiver;
         #[cfg(target_os = "macos")]
         let _ = fixture;
-        let mut last_status = Value::Null;
+        let mut last_status = None;
         while !shared.control.lock().unwrap().shutdown {
             #[cfg(not(target_os = "macos"))]
             let tick_started = Instant::now();
@@ -316,15 +380,13 @@ fn spawn_worker(
                 shared.control.lock().unwrap().status.computer_capabilities =
                     computer.capabilities();
             }
-            let status = serde_json::to_value(shared.status()).unwrap_or(Value::Null);
+            let status = shared.status();
             let mut comparison = status.clone();
-            if let Some(object) = comparison.as_object_mut() {
-                object.remove("updated_ts");
-                object.remove("idle_seconds");
-            }
-            if comparison != last_status {
+            comparison.updated_ts = 0;
+            comparison.idle_seconds = None;
+            if last_status.as_ref() != Some(&comparison) {
                 super::tray::push_status(status);
-                last_status = comparison;
+                last_status = Some(comparison);
             }
             #[cfg(not(target_os = "macos"))]
             std::thread::sleep(Duration::from_secs(1).saturating_sub(tick_started.elapsed()));
@@ -372,6 +434,7 @@ mod tests {
 #[cfg(test)]
 mod incremental_tests {
     use super::*;
+    use draugr_time_core::Collection;
     use serde_json::json;
 
     #[test]
@@ -394,7 +457,7 @@ mod incremental_tests {
             .unwrap()
             .heartbeat("window", &json!({"app":"b","title":"b"}), 5000, 3000)
             .unwrap();
-        let next = Runtime::load(shared.clone(), day, first.cursor).unwrap();
+        let next = Runtime::load(shared.clone(), day, *first.cursor).unwrap();
         assert_eq!(next.tracks[2].segments.len(), 1, "load only the last event");
         assert_eq!(next.tracks[2].segments[0].range.end, 5000);
         assert!(!next.tags_changed);
@@ -404,7 +467,34 @@ mod incremental_tests {
             .unwrap()
             .put(Collection::Tags, None, json!({"name":"Project"}))
             .unwrap();
-        let next = Runtime::load(shared, day, next.cursor).unwrap();
+        let next = Runtime::load(shared, day, *next.cursor).unwrap();
         assert!(next.tags_changed);
+    }
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+    #[tokio::test]
+    async fn worker_loads_only_day_ranges_and_recovers_after_invalid_request() {
+        let mut storage = Storage::open_in_memory().unwrap();
+        storage.tag_interval("Old", "", 1, 10, false).unwrap();
+        storage
+            .tag_interval("Current", "", 100, 200, false)
+            .unwrap();
+        let shared = Shared::new(storage, "test".into(), 300);
+        let loader = Loader::new(shared);
+        assert!(loader
+            .load(Range::new(-1, 0), Default::default())
+            .await
+            .is_err());
+        let snapshot = loader
+            .load(Range::new(150, 250), Default::default())
+            .await
+            .unwrap();
+        let metadata = snapshot.tag_metadata.unwrap();
+        assert_eq!(metadata.ranges.len(), 1);
+        assert_eq!(metadata.ranges[0].start_ts, 100);
+        assert_eq!(metadata.recent.len(), 2);
     }
 }

@@ -4,7 +4,7 @@ use draugr_time_watchers::{LifecycleEvent, LifecycleKind};
 use serde::{Deserialize, Serialize};
 
 /// Independent dimensions: a missing title does not erase valid idle evidence.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComputerState {
     pub machine: String,
     pub activity: String,

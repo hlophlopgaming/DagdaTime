@@ -1,6 +1,5 @@
 use chrono::{Datelike, Local, NaiveDate, TimeZone};
-use draugr_time_core::Event;
-use serde_json::Value;
+use draugr_time_core::{Event, Tag, TagRange};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -252,15 +251,7 @@ pub fn time_label(ts: i64) -> String {
         .unwrap_or_default()
 }
 pub fn duration(ms: i64) -> String {
-    let seconds = ms.max(0) / 1000;
-    let minutes = seconds / 60;
-    if minutes >= 60 {
-        format!("{}h {}m", minutes / 60, minutes % 60)
-    } else if minutes > 0 {
-        format!("{minutes}m")
-    } else {
-        format!("{seconds}s")
-    }
+    super::localization::duration_in(super::localization::current(), ms)
 }
 pub fn empty_tracks() -> Vec<Track> {
     ["Tags", "Computer", "Applications", "Documents"]
@@ -271,30 +262,22 @@ pub fn empty_tracks() -> Vec<Track> {
         })
         .collect()
 }
-pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) -> Vec<Track> {
+pub fn tracks(events: &[Event], tags: &[Tag], ranges: &[TagRange], day: Range) -> Vec<Track> {
     let mut result = empty_tracks();
     for value in ranges {
-        let Some(tag_id) = value["tag_id"].as_i64() else {
+        let tag_id = value.tag_id;
+        let original_range = Range::new(value.start_ts, value.end_ts);
+        let Some(range) = clip(original_range, day) else {
             continue;
         };
-        let range = Range::new(
-            value["start_ts"].as_i64().unwrap_or(0),
-            value["end_ts"].as_i64().unwrap_or(0),
-        );
-        let original_range = range;
-        let Some(range) = clip(range, day) else {
-            continue;
-        };
-        let tag = tags.iter().find(|tag| tag["id"].as_i64() == Some(tag_id));
-        let name = tag
-            .and_then(|t| t["name"].as_str())
-            .unwrap_or("Unknown tag");
+        let tag = tags.iter().find(|tag| tag.id == tag_id);
+        let name = tag.map(|t| t.name.as_str()).unwrap_or("Unknown tag");
         let mut segment = Segment::new(range, &tag_id.to_string(), name);
-        segment.tag_record = value["id"].as_i64().map(|id| (id, original_range));
+        segment.tag_record = Some((value.id, original_range));
         segment.label = tag_path(tags, tag_id).into();
-        segment.detail = value["note"].as_str().unwrap_or_default().into();
+        segment.detail = value.note.as_deref().unwrap_or_default().into();
         if let Some(hex) = tag
-            .and_then(|tag| tag["color"].as_str())
+            .and_then(|tag| tag.color.as_deref())
             .and_then(|hex| hex.strip_prefix('#'))
             .filter(|hex| hex.len() == 6)
         {
@@ -547,12 +530,36 @@ pub fn fixture_with_apps(day: Range, apps: &[(String, String)]) -> Vec<Track> {
         });
     }
     let tags = [
-        serde_json::json!({"id":1,"name":"Project Atlas","color":"#778dc3"}),
-        serde_json::json!({"id":2,"name":"Studio Paper","color":"#5baf9d"}),
+        Tag {
+            id: 1,
+            name: "Project Atlas".into(),
+            color: Some("#778dc3".into()),
+            parent_id: None,
+            archived: 0,
+        },
+        Tag {
+            id: 2,
+            name: "Studio Paper".into(),
+            color: Some("#5baf9d".into()),
+            parent_id: None,
+            archived: 0,
+        },
     ];
     let ranges = [
-        serde_json::json!({"tag_id":1,"start_ts":at(8),"end_ts":at(10)}),
-        serde_json::json!({"tag_id":2,"start_ts":at(13),"end_ts":at(16)}),
+        TagRange {
+            id: 1,
+            tag_id: 1,
+            start_ts: at(8),
+            end_ts: at(10),
+            note: None,
+        },
+        TagRange {
+            id: 2,
+            tag_id: 2,
+            start_ts: at(13),
+            end_ts: at(16),
+            note: None,
+        },
     ];
     tracks(&events, &tags, &ranges, day)
 }
@@ -881,15 +888,15 @@ mod power_boundary_tests {
     }
 }
 
-pub fn tag_path(tags: &[Value], id: i64) -> String {
+pub fn tag_path(tags: &[Tag], id: i64) -> String {
     let mut names = Vec::new();
     let mut current = Some(id);
     for _ in 0..tags.len() {
-        let Some(tag) = tags.iter().find(|t| t["id"].as_i64() == current) else {
+        let Some(tag) = tags.iter().find(|t| Some(t.id) == current) else {
             break;
         };
-        names.push(tag["name"].as_str().unwrap_or("Unknown"));
-        current = tag["parent_id"].as_i64();
+        names.push(tag.name.as_str());
+        current = tag.parent_id;
         if current.is_none() {
             break;
         }

@@ -18,14 +18,14 @@ pub fn now_ms() -> i64 {
         .min(i64::MAX as u128) as i64
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct BackendStatus {
     pub name: String,
     pub state: String,
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Status {
     pub computer: ComputerState,
     pub computer_capabilities: String,
@@ -337,6 +337,12 @@ impl Tracker {
         batch.commit()?;
         if previous != (self.had_window, self.had_idle) {
             storage.flush()?;
+        }
+        if let Some(last) = self
+            .last_tick
+            .filter(|last| now > *last && now - *last < 3000)
+        {
+            storage.auto_tag(last, now)?;
         }
         control.status.computer = state;
         computer::update_status(&mut control.status);

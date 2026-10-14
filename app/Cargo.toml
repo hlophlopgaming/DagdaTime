@@ -15,14 +15,13 @@ auto-launch = "0.6"
 iced = { version = "0.14", default-features = false, features = ["advanced", "tiny-skia", "canvas", "tokio", "image-without-codecs", "svg", "x11", "wayland"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 png = "0.18"
-rfd = { version = "0.16", default-features = false, features = ["gtk3", "common-controls-v6"] }
-tray-icon = { version = "0.25", default-features = false, features = ["libappindicator"] }
+rfd = { version = "0.16", default-features = false, features = ["xdg-portal", "async-std", "wayland", "common-controls-v6"] }
+tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
-base64 = "0.22"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 freedesktop-icons = "0.4"
-gtk = "0.18"
+libc = "0.2"
 shlex = "2"
 zbus = "5"
 

@@ -1,5 +1,14 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteDraugr128.png">
+  <img src="logo/blackDraugr128.png" alt="Draugr Time" width="96" height="96">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteCrown128.png">
+  <img src="logo/blackCrown128.png" alt="Draugr Time tray crown" width="32" height="32">
+</picture>
+
 # Draugr Time
 
 ### Open-Source- und plattformübergreifende Alternative zu ManicTime
@@ -21,7 +30,7 @@ Sieh auf einer Zeitleiste, wo dein Tag geblieben ist, ordne Zeit Projekten zu un
 ---
 
 > [!IMPORTANT]
-> **Draugr Time ist in früher Entwicklung.** Aktivitätserfassung und Tageszeitleiste funktionieren bereits mit der nativen Iced-Oberfläche. Tag-Bearbeitung, Regeln und Berichte sind geplant; siehe [Roadmap](#roadmap).
+> **Draugr Time ist in früher Entwicklung.** Aktivitätserfassung und Tageszeitleiste funktionieren bereits mit der nativen Iced-Oberfläche. Tags und Regeln funktionieren ebenfalls; Tagesübersicht, Monatsberichte, CSV/JSON-Export und ActivityWatch-Import sind verfügbar; siehe [Roadmap](#roadmap).
 > ⭐ Gib dem Repo einen **Stern** oder aktiviere 👀 **Watch**, um den Fortschritt zu verfolgen und vom ersten Release zu erfahren.
 
 ## Warum Draugr Time?
@@ -45,9 +54,9 @@ Du klappst um 9 Uhr den Laptop auf, und plötzlich ist es 18 Uhr. Wo ist der Tag
 | Preis | ✅ Kostenlos | Kostenlose Edition, kostenpflichtiges Pro | ✅ Kostenlos |
 | Daten bleiben auf deinem Rechner | ✅ | ✅ | ✅ |
 | Zeitleiste mit manuellem Taggen von Zeitbereichen | 🚧 Geplant (M5) | ✅ | Regelbasierte Kategorien |
-| Auto-Tagging-Regeln (App / Titel / URL) | 🚧 Geplant (M6) | ✅ | ✅ |
+| Auto-Tagging-Regeln (App / Titel / URL) | ✅ M6 | ✅ | ✅ |
 | Native Wayland-Backends | ✅ GNOME/KDE/wlroots | — | Eingeschränkt |
-| Import aus ActivityWatch | 🚧 Geplant (M7) | ❌ | — |
+| Import aus ActivityWatch | ✅ | ❌ | — |
 
 Das Ereignisformat von Draugr Time ist mit ActivityWatch kompatibel, sodass du deine Historie mitnehmen kannst.
 
@@ -60,8 +69,8 @@ Das Ereignisformat von Draugr Time ist mit ActivityWatch kompatibel, sodass du d
 - [x] **M3.5** App-Grundgerüst: Hauptfenster, Navigation, Tracking-Status, Tray-Symbol mit Pause/Fortsetzen
 - [x] **M4** Tagesansicht: Zeitleiste, Bereichsauswahl, Zusammenfassung (wie in ManicTime)
 - [ ] **M5** Tags: Bereich auf der Zeitleiste markieren → Projekt zuweisen
-- [ ] **M6** Auto-Tagging-Regeln
-- [ ] **M7** Berichte, CSV/JSON-Export, Import aus ActivityWatch
+- [x] **M6** Auto-Tagging-Regeln, Vorschau und Rückgängig; acht Oberflächensprachen — [M6](docs/m6.md)
+- [x] **M7** Berichte, CSV/JSON-Export, Import aus ActivityWatch
 - [ ] **M9** Browser-Erweiterung für URLs (Firefox, Chromium)
 - [ ] **M10** Einführung, Datenschutz, Backups und Installationspakete (MSI, DMG, AppImage/Flatpak)
 - [ ] **Später** Screenshots, Datenbankverschlüsselung, Synchronisierung zwischen Geräten
@@ -111,7 +120,7 @@ Teilweise. Wie RescueTime und Timing erfasst es deine Computernutzung automatisc
 <details>
 <summary><b>Kann ich meine Daten aus ManicTime oder ActivityWatch importieren?</b></summary>
 
-Der Import aus ActivityWatch ist für M7 geplant. Ein ManicTime-Import wird geprüft: Eröffne ein Issue, wenn du ihn brauchst.
+Der Import aus ActivityWatch ist verfügbar; siehe [M7](docs/m7.md). Ein ManicTime-Import wird geprüft: Eröffne ein Issue, wenn du ihn brauchst.
 </details>
 
 <details>
@@ -137,3 +146,5 @@ Wenn dir Draugr Time nützlich erscheint, **hilft ein Stern anderen, es zu finde
 [GPL-3.0](LICENSE)
 
 <sub>ManicTime, RescueTime, Timing und WakaTime sind Marken ihrer jeweiligen Inhaber. Draugr Time ist ein unabhängiges Projekt und steht in keiner Verbindung zu ihnen.</sub>
+
+[M7: Overview / Week / Reports / CLI](docs/m7.md).

@@ -1,5 +1,14 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteDraugr128.png">
+  <img src="logo/blackDraugr128.png" alt="Draugr Time" width="96" height="96">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/whiteCrown128.png">
+  <img src="logo/blackCrown128.png" alt="Draugr Time tray crown" width="32" height="32">
+</picture>
+
 # Draugr Time
 
 **Local activity tracking with a native Rust desktop app.**
@@ -17,8 +26,8 @@ Draugr Time records your active application, window title and active/away time,
 then shows them on a daily timeline. It is a free, GPL-3.0 project inspired by
 ManicTime's workflow. Your history stays on your computer.
 
-> **Early development:** tracking and the Day view work. Tag editing, rules,
-> reports, import/export and browser URL collection are still planned.
+> **Early development:** Day/Overview/Week, tags, rules, monthly reports,
+> CSV/JSON and ActivityWatch import work. Browser URL collection remains planned.
 
 ## What works
 
@@ -29,6 +38,8 @@ ManicTime's workflow. Your history stays on your computer.
 - Day timeline with computer, application, document and tag tracks; zoom, pan,
   range selection, duration summaries, hierarchical tags and away-time tagging.
 - Background recording, tray controls, pause/resume and optional startup at login.
+- Day overview, weekly timelines, monthly reports and timesheets; CSV/JSON export,
+  ActivityWatch import and a separate headless `draugr-time-cli`.
 - Local SQLite storage and a selectable data folder.
 
 One executable contains the UI, tracking, storage and localhost API. There is
@@ -44,8 +55,8 @@ These screenshots show generated sample history, not personal activity.
 
 ## Build and run
 
-Install stable Rust. Linux needs GTK 3, Ayatana AppIndicator, librsvg and
-libxkbcommon-x11 development packages. Windows needs MSVC; macOS needs Xcode
+Install stable Rust. Linux needs librsvg and libxkbcommon-x11 development packages,
+a StatusNotifierItem tray host and xdg-desktop-portal with a desktop backend. Windows needs MSVC; macOS needs Xcode
 command-line tools. Installers are not available yet.
 
 ```sh
@@ -75,8 +86,9 @@ and [desktop usage](docs/desktop.md) for settings and platform notes.
 - [x] **M0–M3.5:** workspace, storage, native watchers, local API and desktop shell.
 - [x] **M4:** Day timeline, range selection and summaries.
 - [x] **M5:** tag editing, tag manager and away-time tagging.
-- [ ] **M6:** automatic tagging rules.
-- [ ] **M7:** Week view, reports, CSV/JSON export and ActivityWatch import.
+- [x] **M5.5:** GTK-free Linux tray, day-data cleanup and lower desktop memory usage.
+- [x] **M6:** automatic tagging rules with preview/history undo; eight interface languages, OS detection, saved selection and English fallback. Platform/translation review: [M6 verification](docs/m6.md).
+- [x] **M7:** Week view, reports, CSV/JSON export and ActivityWatch import.
 - [ ] **M9:** Firefox/Chromium extension for browser URLs.
 - [ ] **M10:** onboarding, privacy settings, backups and installers.
 
@@ -91,3 +103,9 @@ is welcome. Agent instructions are in [AGENTS.md](AGENTS.md).
 ## License
 
 [GNU GPLv3](LICENSE). Draugr Time is independent of ManicTime and ActivityWatch.
+
+M6 adds regex auto-tagging with priority, live preview and reversible history application.
+Settings offers English, Russian, German, French, Spanish, Portuguese, Simplified Chinese
+and Japanese, or the system language. See [M6 usage and verification](docs/m6.md).
+
+Day overview, week timelines, reports and local console: [M7 guide](docs/m7.md).
