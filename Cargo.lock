@@ -872,7 +872,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "draugr-time"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "auto-launch",
  "chrono",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "draugr-time-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "regex",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "draugr-time-daemon"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "axum",
  "dirs 7.0.0",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "draugr-time-watchers"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "block2 0.6.2",
  "core-foundation 0.10.1",

@@ -4,7 +4,10 @@ use draugr_time_core::{Event, GroupBy, Report, Tag, TagRange};
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, Text};
 use iced::widget::column;
 use iced::{mouse, Point, Rectangle, Renderer, Size};
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 pub type Highlight = Option<(Option<i64>, Option<String>)>;
 #[derive(Clone, Debug)]
@@ -30,8 +33,190 @@ pub enum Edit {
 pub struct Day {
     pub date: NaiveDate,
     pub range: Range,
-    pub report: Report,
-    pub tracks: Vec<Track>,
+    pub active_ms: i64,
+    pub tag_totals: BTreeMap<Option<i64>, i64>,
+    pub bands: [Vec<Band>; 3],
+    cache: Arc<Mutex<WeekCache>>,
+}
+impl Day {
+    fn summarize(date: NaiveDate, range: Range, report: &Report) -> Self {
+        let mut tag_totals = BTreeMap::new();
+        for interval in day_intervals(report, range) {
+            let duration = interval.end_ts.min(range.end) - interval.start_ts.max(range.start);
+            *tag_totals.entry(interval.tag_id).or_default() += duration;
+        }
+        Self {
+            date,
+            range,
+            active_ms: tag_totals.values().sum(),
+            tag_totals,
+            bands: Default::default(),
+            cache: Arc::new(Mutex::new(WeekCache::default())),
+        }
+    }
+}
+fn day_intervals(
+    report: &Report,
+    range: Range,
+) -> impl Iterator<Item = &draugr_time_core::ReportInterval> {
+    let start = report
+        .intervals
+        .partition_point(|i| i.end_ts <= range.start);
+    report.intervals[start..]
+        .iter()
+        .take_while(move |i| i.start_ts < range.end)
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct Band {
+    start: u16,
+    end: u16,
+    color: [f32; 3],
+}
+type Cells = [[Option<[f32; 3]>; 1440]; 3];
+fn empty_cells() -> Cells {
+    [[None; 1440]; 3]
+}
+fn fill_cells(cells: &mut [Option<[f32; 3]>; 1440], range: Range, color: [f32; 3], day: Range) {
+    let Some(range) = model::clip(range, day) else {
+        return;
+    };
+    let duration = day.duration();
+    let start = ((range.start - day.start) as i128 * 1440 / duration as i128) as usize;
+    let end = (((range.end - day.start) as i128 * 1440 + duration as i128 - 1) / duration as i128)
+        as usize;
+    cells[start..end.min(1440)].fill(Some(color));
+}
+fn fill_states(cells: &mut Cells, tracks: &[Track], range: Range) {
+    for s in &tracks[1].segments {
+        fill_cells(&mut cells[0], s.range, s.color, range);
+    }
+    for s in tracks[2]
+        .segments
+        .iter()
+        .filter(|s| s.key.as_ref() == "unobserved")
+    {
+        fill_cells(
+            &mut cells[1],
+            s.range,
+            [195.0 / 255.0, 95.0 / 255.0, 95.0 / 255.0],
+            range,
+        );
+    }
+}
+fn fill_tags(cells: &mut Cells, report: &Report, range: Range, tags: &[Tag]) {
+    for i in day_intervals(report, range) {
+        let color = if i.tag_id.is_none() {
+            Color::from_rgb8(145, 155, 170)
+        } else {
+            tag_color(tags, i.tag_id)
+        };
+        fill_cells(
+            &mut cells[2],
+            Range::new(i.start_ts, i.end_ts),
+            [color.r, color.g, color.b],
+            range,
+        );
+    }
+}
+fn compress_cells(cells: Cells) -> [Vec<Band>; 3] {
+    cells.map(|row| {
+        let mut bands: Vec<Band> = Vec::new();
+        for (index, color) in row.into_iter().enumerate() {
+            let Some(color) = color else {
+                continue;
+            };
+            if let Some(last) = bands
+                .last_mut()
+                .filter(|last| last.end as usize == index && last.color == color)
+            {
+                last.end += 1;
+            } else {
+                bands.push(Band {
+                    start: index as u16,
+                    end: index as u16 + 1,
+                    color,
+                });
+            }
+        }
+        bands
+    })
+}
+fn bands_from_tracks(
+    tracks: &[Track],
+    report: &Report,
+    range: Range,
+    tags: &[Tag],
+) -> [Vec<Band>; 3] {
+    let mut cells = empty_cells();
+    fill_states(&mut cells, tracks, range);
+    fill_tags(&mut cells, report, range, tags);
+    compress_cells(cells)
+}
+#[derive(Debug, Default)]
+struct WeekCache {
+    geometry: canvas::Cache,
+    theme: Option<Theme>,
+}
+struct WeekCanvas<'a> {
+    day: &'a Day,
+    stats: &'a timeline::PaintStats,
+}
+impl canvas::Program<Message> for WeekCanvas<'_> {
+    type State = ();
+    fn draw(
+        &self,
+        _: &(),
+        renderer: &Renderer,
+        theme: &Theme,
+        bounds: Rectangle,
+        _: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut cache = self.day.cache.lock().unwrap();
+        if cache.theme.as_ref() != Some(theme) {
+            cache.geometry.clear();
+            cache.theme = Some(theme.clone());
+        }
+        vec![cache.geometry.draw(renderer, bounds.size(), |frame| {
+            let started = Instant::now();
+            let colors = theme.extended_palette();
+            let row_height = (bounds.height - 18.0) / 2.0;
+            frame.fill_rectangle(
+                Point::new(0.0, 18.0),
+                Size::new(bounds.width, row_height * 2.0),
+                colors.background.weak.color,
+            );
+            for (row, bands) in self.day.bands.iter().enumerate() {
+                let (y, height) = match row {
+                    1 => (18.0, 6.0),
+                    2 => (18.0 + row_height, row_height),
+                    _ => (18.0, row_height),
+                };
+                for band in bands {
+                    let x = band.start as f32 / 1440.0 * bounds.width;
+                    let width = (band.end - band.start) as f32 / 1440.0 * bounds.width;
+                    frame.fill_rectangle(
+                        Point::new(x, y),
+                        Size::new(width, height),
+                        Color::from_rgb(band.color[0], band.color[1], band.color[2]),
+                    );
+                }
+            }
+            for hour in [0, 6, 12, 18] {
+                let ts = self.day.range.start + self.day.range.duration() * hour / 24;
+                frame.fill_text(Text {
+                    content: model::time_label(ts),
+                    position: Point::new(hour as f32 / 24.0 * bounds.width, 0.0),
+                    size: 11.0.into(),
+                    color: colors.background.base.text,
+                    ..Default::default()
+                });
+            }
+            self.stats.frames.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .max_build_us
+                .fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+        })]
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Data {
@@ -68,19 +253,19 @@ impl Slice {
     }
 }
 pub fn slices(report: &Report, expanded: bool) -> Vec<Slice> {
-    let mut groups: BTreeMap<(Option<i64>, String), BTreeMap<String, i64>> = BTreeMap::new();
+    let mut groups: BTreeMap<(Option<i64>, &str), BTreeMap<&str, i64>> = BTreeMap::new();
     for i in &report.intervals {
         *groups
-            .entry((i.tag_id, i.tag.clone()))
+            .entry((i.tag_id, i.tag.as_ref()))
             .or_default()
-            .entry(i.application.clone())
+            .entry(i.application.as_ref())
             .or_default() += i.end_ts - i.start_ts;
     }
     let mut slices = Vec::new();
     for ((tag_id, tag), apps) in groups {
         let mut other = Slice {
             tag_id,
-            tag: tag.clone(),
+            tag: tag.into(),
             application: "Other".into(),
             duration: 0,
             members: Vec::new(),
@@ -88,12 +273,12 @@ pub fn slices(report: &Report, expanded: bool) -> Vec<Slice> {
         for (application, duration) in apps {
             if !expanded && (duration as f64) < report.active_ms as f64 * 0.02 {
                 other.duration += duration;
-                other.members.push(application);
+                other.members.push(application.into());
             } else {
                 slices.push(Slice {
                     tag_id,
-                    tag: tag.clone(),
-                    application,
+                    tag: tag.into(),
+                    application: application.into(),
                     duration,
                     members: Vec::new(),
                 });
@@ -173,43 +358,65 @@ fn date_range(from: &str, to: &str) -> Result<(NaiveDate, NaiveDate, Range), Str
     }
     Ok((from, to, range))
 }
-fn load(shared: draugr_time_daemon::Shared, from: String, to: String) -> Result<Data, String> {
+fn load(
+    shared: draugr_time_daemon::Shared,
+    from: String,
+    to: String,
+    week: bool,
+) -> Result<Data, String> {
     let (start, end, range) = date_range(&from, &to)?;
     let db = shared.storage.lock().map_err(|e| e.to_string())?;
     let report = db
         .report(range.start, range.end)
         .map_err(|e| e.to_string())?;
-    let tags = db.tags().map_err(|e| e.to_string())?;
+    let tags = if week {
+        db.tags().map_err(|e| e.to_string())?
+    } else {
+        Vec::new()
+    };
+    let first_computer = if week {
+        db.first_event_start("computer")
+            .map_err(|e| e.to_string())?
+    } else {
+        None
+    };
     let mut days = Vec::new();
     let mut date = start;
     loop {
         let range = model::day_bounds(date);
-        let events = db
-            .events(None, range.start, range.end)
-            .map_err(|e| e.to_string())?;
-        let ranges = db
-            .tag_ranges(range.start, range.end)
-            .map_err(|e| e.to_string())?;
-        let mut events = events;
-        if let Some(first) = db
-            .first_event_start("computer")
-            .map_err(|e| e.to_string())?
-        {
-            for e in &mut events {
-                if e.bucket == "afk" {
-                    e.end_ts = e.end_ts.min(first);
+        let mut day = Day::summarize(date, range, &report);
+        if week {
+            let mut cells = empty_cells();
+            fill_tags(&mut cells, &report, range, &tags);
+            for bucket in ["computer", "afk"] {
+                let mut cursor = range.start;
+                while cursor < range.end {
+                    let (mut events, mut next) = db
+                        .event_chunk(Some(bucket), cursor, range.end, 8193)
+                        .map_err(|e| e.to_string())?;
+                    if next <= cursor {
+                        next = cursor + 1;
+                        events = db
+                            .event_chunk(Some(bucket), cursor, next, i64::MAX)
+                            .map_err(|e| e.to_string())?
+                            .0;
+                    }
+                    events.retain(|e| e.start_ts < next);
+                    for e in &mut events {
+                        e.start_ts = e.start_ts.max(cursor);
+                        e.end_ts = e.end_ts.min(next);
+                        if bucket == "afk" {
+                            e.end_ts = e.end_ts.min(first_computer.unwrap_or(range.end));
+                        }
+                    }
+                    let tracks = model::tracks(&events, &[], &[], range);
+                    fill_states(&mut cells, &tracks, range);
+                    cursor = next;
                 }
             }
+            day.bands = compress_cells(cells);
         }
-        let tracks = model::tracks(&events, &tags, &ranges, range);
-        days.push(Day {
-            date,
-            range,
-            report: db
-                .report(range.start, range.end)
-                .map_err(|e| e.to_string())?,
-            tracks,
-        });
+        days.push(day);
         if date == end {
             break;
         }
@@ -225,6 +432,12 @@ fn load(shared: draugr_time_daemon::Shared, from: String, to: String) -> Result<
     })
 }
 impl State {
+    pub(super) fn release_reports(&mut self) {
+        self.report_ui.data = None;
+        self.report_ui.loading = false;
+        self.report_ui.generation = self.report_ui.generation.wrapping_add(1);
+        memory::SystemReclaimer.reclaim();
+    }
     pub fn edit_report(&mut self, event: Edit) -> Task<Message> {
         match event {
             Edit::From(s) => {
@@ -267,7 +480,7 @@ impl State {
             Edit::Highlight(h) => self.report_ui.highlight = h,
             Edit::Expand => self.report_ui.expanded = !self.report_ui.expanded,
             Edit::OpenDay(date) => {
-                self.screen = "Day";
+                self.set_screen("Day");
                 self.change_date(date);
             }
             Edit::Refresh => {
@@ -309,13 +522,12 @@ impl State {
                         let tracks = model::fixture_with_apps(range, &self.preview_apps);
                         let report = from_tracks(&tracks, &[], range).unwrap();
                         total.active_ms += report.active_ms;
-                        total.intervals.extend(report.intervals.clone());
-                        days.push(Day {
-                            date,
-                            range,
-                            report,
-                            tracks,
-                        });
+                        let mut day = Day::summarize(date, range, &report);
+                        if self.screen == "Week" {
+                            day.bands = bands_from_tracks(&tracks, &report, range, &[]);
+                        }
+                        days.push(day);
+                        total.intervals.extend(report.intervals);
                         if date == end {
                             break;
                         }
@@ -338,10 +550,11 @@ impl State {
                 let shared = runtime.shared.clone();
                 let from = self.report_ui.from.clone();
                 let to = self.report_ui.to.clone();
+                let week = self.screen == "Week";
                 self.report_ui.loading = true;
                 return Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || load(shared, from, to))
+                        tokio::task::spawn_blocking(move || load(shared, from, to, week))
                             .await
                             .map_err(|e| e.to_string())
                             .and_then(|v| v)
@@ -351,6 +564,8 @@ impl State {
             }
             Edit::Loaded(g, r) => {
                 if g != self.report_ui.generation {
+                    drop(r);
+                    memory::SystemReclaimer.reclaim();
                     return Task::none();
                 }
                 self.report_ui.loading = false;
@@ -522,18 +737,13 @@ impl State {
                     button(text(format!(
                         "{} · {}",
                         day.date,
-                        model::duration(day.report.active_ms)
+                        model::duration(day.active_ms)
                     )))
                     .on_press(Message::Report(Edit::OpenDay(day.date))),
                 );
                 body = body.push(
-                    Canvas::new(Compact {
-                        tracks: &day.tracks,
-                        range: day.range,
-                        report: &day.report,
-                        highlight: None,
-                        other: Vec::new(),
-                        tags: &self.tags,
+                    Canvas::new(WeekCanvas {
+                        day,
                         stats: &self.stats,
                     })
                     .width(Length::Fill)
@@ -606,13 +816,7 @@ impl State {
             for r in data.report.rows(GroupBy::Tag, ui.filter) {
                 let mut line = row![text(translate_label(&r.label)).width(150)].spacing(8);
                 for day in &data.days {
-                    let ms = day
-                        .report
-                        .rows(GroupBy::Tag, None)
-                        .iter()
-                        .filter(|v| v.tag_id == r.tag_id)
-                        .map(|v| v.duration_ms)
-                        .sum();
+                    let ms = day.tag_totals.get(&r.tag_id).copied().unwrap_or(0);
                     line = line.push(text(model::duration(ms)).width(80));
                 }
                 sheet = sheet.push(line.push(text(model::duration(r.duration_ms)).width(80)));
@@ -620,10 +824,10 @@ impl State {
             let mut totals = row![text(tr("Total")).width(150)].spacing(8);
             for day in &data.days {
                 let total = day
-                    .report
-                    .rows(GroupBy::Tag, ui.filter)
+                    .tag_totals
                     .iter()
-                    .map(|r| r.duration_ms)
+                    .filter(|(id, _)| ui.filter.is_none_or(|filter| **id == Some(filter)))
+                    .map(|(_, ms)| *ms)
                     .sum();
                 totals = totals.push(text(model::duration(total)).width(80));
             }
@@ -811,11 +1015,12 @@ fn selected(i: &draugr_time_core::ReportInterval, h: &Highlight, other: &[Slice]
     h.as_ref().is_some_and(|(tag, app)| {
         i.tag_id == *tag
             && app.as_ref().is_none_or(|app| {
-                &i.application == app
+                i.application.as_ref() == app
                     || (app == "Other"
-                        && other
-                            .iter()
-                            .any(|s| s.tag_id == *tag && s.members.contains(&i.application)))
+                        && other.iter().any(|s| {
+                            s.tag_id == *tag
+                                && s.members.iter().any(|m| m == i.application.as_ref())
+                        }))
             })
     })
 }
@@ -1214,19 +1419,27 @@ mod tests {
             shared.clone(),
             date.to_string(),
             date.succ_opt().unwrap().to_string(),
+            true,
         )
         .unwrap();
         let tags = shared.storage.lock().unwrap().tags().unwrap();
         assert_eq!(
             data.report.active_ms,
-            data.days.iter().map(|d| d.report.active_ms).sum::<i64>()
+            data.days.iter().map(|d| d.active_ms).sum::<i64>()
         );
         for d in &data.days {
             assert_eq!(
-                from_tracks(&d.tracks, &tags, d.range)
-                    .unwrap()
-                    .rows(GroupBy::Application, None),
-                d.report.rows(GroupBy::Application, None)
+                {
+                    let db = shared.storage.lock().unwrap();
+                    let tracks = model::tracks(
+                        &db.events(None, d.range.start, d.range.end).unwrap(),
+                        &tags,
+                        &db.tag_ranges(d.range.start, d.range.end).unwrap(),
+                        d.range,
+                    );
+                    from_tracks(&tracks, &tags, d.range).unwrap().active_ms
+                },
+                d.active_ms
             );
         }
         assert_eq!(
@@ -1289,12 +1502,18 @@ mod monthly_tests {
                 last + 30_000,
             )
             .unwrap();
-        let data = load(shared.clone(), first.to_string(), "2026-10-31".into()).unwrap();
+        let data = load(
+            shared.clone(),
+            first.to_string(),
+            "2026-10-31".into(),
+            false,
+        )
+        .unwrap();
         assert_eq!(data.days.len(), 31);
         assert_eq!(data.report.active_ms, 31 * 60_000 + 30_000);
         assert_eq!(
             data.report.active_ms,
-            data.days.iter().map(|d| d.report.active_ms).sum::<i64>()
+            data.days.iter().map(|d| d.active_ms).sum::<i64>()
         );
         assert_eq!(data.report.to, last);
         assert!(data.report.intervals.iter().all(|i| i.end_ts <= last));
@@ -1303,11 +1522,111 @@ mod monthly_tests {
                 row.duration_ms,
                 data.days
                     .iter()
-                    .flat_map(|d| d.report.rows(GroupBy::Tag, None))
-                    .filter(|r| r.tag_id == row.tag_id)
-                    .map(|r| r.duration_ms)
+                    .map(|d| d.tag_totals.get(&row.tag_id).copied().unwrap_or(0))
                     .sum::<i64>()
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod memory_regression_tests {
+    use super::*;
+    #[test]
+    fn daily_totals_split_intervals_without_copying_history() {
+        let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let first = model::day_bounds(date);
+        let second = model::day_bounds(date.succ_opt().unwrap());
+        let report = Report {
+            from: first.start,
+            to: second.end,
+            active_ms: 180_000,
+            intervals: vec![draugr_time_core::ReportInterval {
+                start_ts: first.end - 60_000,
+                end_ts: first.end + 120_000,
+                tag_id: Some(1),
+                tag: "Work".into(),
+                application: "Editor".into(),
+                document: "draft".into(),
+            }],
+        };
+        let a = Day::summarize(date, first, &report);
+        let b = Day::summarize(date.succ_opt().unwrap(), second, &report);
+        assert_eq!(a.active_ms, 60_000);
+        assert_eq!(b.active_ms, 120_000);
+        assert_eq!(
+            a.tag_totals[&Some(1)] + b.tag_totals[&Some(1)],
+            report.active_ms
+        );
+    }
+    #[test]
+    fn minute_bands_are_bounded_and_cache_rebuilds_only_on_resize_or_theme_change() {
+        let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let range = model::day_bounds(date);
+        let tracks = model::fixture(range);
+        let report = from_tracks(&tracks, &[], range).unwrap();
+        let mut day = Day::summarize(date, range, &report);
+        day.bands = bands_from_tracks(&tracks, &report, range, &[]);
+        assert!(day.bands.iter().map(Vec::len).sum::<usize>() <= 3 * 1440);
+        let stats = timeline::PaintStats::default();
+        let canvas = WeekCanvas {
+            day: &day,
+            stats: &stats,
+        };
+        let renderer = Renderer::new(iced::Font::DEFAULT, 16.0.into());
+        use canvas::Program;
+        let bounds = Rectangle::with_size(Size::new(800.0, 52.0));
+        for _ in 0..2 {
+            canvas.draw(
+                &(),
+                &renderer,
+                &native_theme(false),
+                bounds,
+                mouse::Cursor::Unavailable,
+            );
+        }
+        assert_eq!(stats.frames.load(Ordering::Relaxed), 1);
+        canvas.draw(
+            &(),
+            &renderer,
+            &native_theme(true),
+            bounds,
+            mouse::Cursor::Unavailable,
+        );
+        assert_eq!(stats.frames.load(Ordering::Relaxed), 2);
+        canvas.draw(
+            &(),
+            &renderer,
+            &native_theme(true),
+            Rectangle::with_size(Size::new(900.0, 52.0)),
+            mouse::Cursor::Unavailable,
+        );
+        assert_eq!(stats.frames.load(Ordering::Relaxed), 3);
+    }
+}
+
+#[cfg(test)]
+mod band_boundary_tests {
+    use super::*;
+    #[test]
+    fn minute_cells_keep_gaps_and_subminute_edges_on_dst_length_days() {
+        for hours in [23, 25] {
+            let day = Range::new(1000, 1000 + hours * 3_600_000);
+            let mut cells = [None; 1440];
+            let active = [0.37, 0.65, 0.58];
+            let away = [0.83, 0.69, 0.40];
+            fill_cells(
+                &mut cells,
+                Range::new(day.start, day.start + 1),
+                active,
+                day,
+            );
+            fill_cells(&mut cells, Range::new(day.end - 1, day.end), away, day);
+            assert_eq!(cells[0], Some(active));
+            assert_eq!(cells[1439], Some(away));
+            assert!(cells[1..1439].iter().all(Option::is_none));
+            let bands = compress_cells([cells, [None; 1440], [None; 1440]]);
+            assert_eq!(bands[0].len(), 2);
         }
     }
 }

@@ -1,5 +1,8 @@
 use super::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashSet},
+    sync::Arc,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroupBy {
@@ -22,9 +25,9 @@ pub struct ReportInterval {
     pub start_ts: i64,
     pub end_ts: i64,
     pub tag_id: Option<i64>,
-    pub tag: String,
-    pub application: String,
-    pub document: String,
+    pub tag: Arc<str>,
+    pub application: Arc<str>,
+    pub document: Arc<str>,
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct ReportRow {
@@ -62,6 +65,16 @@ impl Report {
         ranges: &[TagRange],
         from: i64,
         to: i64,
+    ) -> Result<Self, StorageError> {
+        Self::calculate_interned(events, tags, ranges, from, to, &mut HashSet::new())
+    }
+    fn calculate_interned(
+        events: &[Event],
+        tags: &[Tag],
+        ranges: &[TagRange],
+        from: i64,
+        to: i64,
+        strings: &mut HashSet<Arc<str>>,
     ) -> Result<Self, StorageError> {
         if from < 0 || to <= from {
             return Err(invalid("expected 0 <= from < to"));
@@ -114,7 +127,7 @@ impl Report {
                     }
                     root = parent;
                 }
-                (tag.id, (root.id, root.name.clone()))
+                (tag.id, (root.id, root.name.as_str()))
             })
             .collect();
         let mut buckets: HashMap<&str, BTreeSet<(i64, usize)>> = HashMap::new();
@@ -151,8 +164,8 @@ impl Report {
             let (tag_id, tag) = assigned
                 .last()
                 .and_then(|&(_, i)| roots.get(&ranges[i].tag_id))
-                .map(|(id, name)| (Some(*id), name.clone()))
-                .unwrap_or((None, "Untagged".into()));
+                .map(|(id, name)| (Some(*id), *name))
+                .unwrap_or((None, "Untagged"));
             let window = current("window");
             let web = current("web");
             let application = window
@@ -162,19 +175,17 @@ impl Report {
                         .filter(|s| !s.is_empty())
                         .or_else(|| w.data["app"].as_str())
                 })
-                .unwrap_or("Unknown application")
-                .to_owned();
+                .unwrap_or("Unknown application");
             let document = web
                 .and_then(|e| e.data["url"].as_str())
                 .or_else(|| window.and_then(|e| e.data["title"].as_str()))
-                .unwrap_or("Unknown document")
-                .to_owned();
+                .unwrap_or("Unknown document");
             report.active_ms += end - start;
             if let Some(last) = report.intervals.last_mut().filter(|last| {
                 last.end_ts == start
                     && last.tag_id == tag_id
-                    && last.application == application
-                    && last.document == document
+                    && last.application.as_ref() == application
+                    && last.document.as_ref() == document
             }) {
                 last.end_ts = end;
             } else {
@@ -182,25 +193,25 @@ impl Report {
                     start_ts: start,
                     end_ts: end,
                     tag_id,
-                    tag,
-                    application,
-                    document,
+                    tag: intern(strings, tag),
+                    application: intern(strings, application),
+                    document: intern(strings, document),
                 });
             }
         }
         Ok(report)
     }
     pub fn rows(&self, group: GroupBy, filter: Option<i64>) -> Vec<ReportRow> {
-        let mut totals: BTreeMap<(Option<i64>, String), i64> = BTreeMap::new();
+        let mut totals: BTreeMap<(Option<i64>, &str), i64> = BTreeMap::new();
         for i in self
             .intervals
             .iter()
             .filter(|i| filter.is_none_or(|id| i.tag_id == Some(id)))
         {
             let key = match group {
-                GroupBy::Tag => (i.tag_id, i.tag.clone()),
-                GroupBy::Application => (None, i.application.clone()),
-                GroupBy::Document => (None, i.document.clone()),
+                GroupBy::Tag => (i.tag_id, i.tag.as_ref()),
+                GroupBy::Application => (None, i.application.as_ref()),
+                GroupBy::Document => (None, i.document.as_ref()),
             };
             *totals.entry(key).or_default() += i.end_ts - i.start_ts;
         }
@@ -209,7 +220,7 @@ impl Report {
             .into_iter()
             .map(|((tag_id, label), duration_ms)| ReportRow {
                 tag_id,
-                label,
+                label: label.into(),
                 duration_ms,
                 share: duration_ms as f64 / total.max(1) as f64,
             })
@@ -237,6 +248,14 @@ impl Report {
         csv
     }
 }
+fn intern(strings: &mut HashSet<Arc<str>>, value: &str) -> Arc<str> {
+    if let Some(value) = strings.get(value) {
+        return value.clone();
+    }
+    let value: Arc<str> = value.into();
+    strings.insert(value.clone());
+    value
+}
 fn invalid(message: &str) -> StorageError {
     StorageError::InvalidRecord(message.into())
 }
@@ -250,25 +269,80 @@ pub struct Archive {
 }
 impl Storage {
     pub fn report(&self, from: i64, to: i64) -> Result<Report, StorageError> {
-        let mut events = self.events(None, from, to)?;
-        // Old AFK buckets end permanently when computer evidence starts, including across queries.
-        if let Some(first) = self.first_event_start("computer")? {
-            for e in &mut events {
-                if e.bucket == "afk" {
-                    e.end_ts = e.end_ts.min(first);
-                }
-            }
+        if from < 0 || to <= from {
+            return Err(invalid("expected 0 <= from < to"));
         }
-        Report::calculate(
-            &events,
-            &self.tags()?,
-            &self.tag_ranges(from, to)?,
+        let tags = self.tags()?;
+        let first_computer = self.first_event_start("computer")?;
+        let mut strings = HashSet::new();
+        let mut report = Report {
             from,
             to,
-        )
+            ..Default::default()
+        };
+        let mut start = from;
+        while start < to {
+            let (mut events, mut end) = self.event_chunk(None, start, to, 8193)?;
+            if end <= start {
+                // A single timestamp can contain more buckets than the batch size.
+                end = start + 1;
+                events = self.event_chunk(None, start, end, i64::MAX)?.0;
+            }
+            events.retain(|e| e.start_ts < end);
+            // Legacy AFK stops at the first computer evidence, even outside this chunk.
+            if let Some(first) = first_computer {
+                for e in &mut events {
+                    if e.bucket == "afk" {
+                        e.end_ts = e.end_ts.min(first);
+                    }
+                }
+            }
+            let chunk = Report::calculate_interned(
+                &events,
+                &tags,
+                &self.tag_ranges(start, end)?,
+                start,
+                end,
+                &mut strings,
+            )?;
+            report.active_ms += chunk.active_ms;
+            for interval in chunk.intervals {
+                if let Some(last) = report.intervals.last_mut().filter(|last| {
+                    last.end_ts == interval.start_ts
+                        && last.tag_id == interval.tag_id
+                        && last.application == interval.application
+                        && last.document == interval.document
+                }) {
+                    last.end_ts = interval.end_ts;
+                } else {
+                    report.intervals.push(interval);
+                }
+            }
+            start = end;
+        }
+        Ok(report)
     }
     pub fn export_archive(&self, from: i64, to: i64) -> Result<Archive, StorageError> {
-        let mut events = self.events(None, from, to)?;
+        if from < 0 || to <= from {
+            return Err(invalid("expected 0 <= from < to"));
+        }
+        let mut events = Vec::new();
+        let mut seen = HashSet::new();
+        let mut start = from;
+        while start < to {
+            let (mut chunk, mut end) = self.event_chunk(None, start, to, 8193)?;
+            if end <= start {
+                end = start + 1;
+                chunk = self.event_chunk(None, start, end, i64::MAX)?.0;
+            }
+            events.extend(
+                chunk
+                    .into_iter()
+                    .filter(|e| e.start_ts < end && seen.insert(e.id)),
+            );
+            start = end;
+        }
+        events.sort_by_key(|e| (e.start_ts, e.id));
         if let Some(first) = self.first_event_start("computer")? {
             for e in &mut events {
                 if e.bucket == "afk" {

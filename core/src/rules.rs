@@ -180,8 +180,13 @@ impl Storage {
                     "INSERT INTO tag_ranges(tag_id,start_ts,end_ts) VALUES(?1,?2,?3)",
                     params![r.tag_id, r.start_ts, r.end_ts],
                 )?;
-                inserted
-                    .push(self.get(Collection::TagRanges, self.connection.last_insert_rowid())?);
+                inserted.push(TagRange {
+                    id: self.connection.last_insert_rowid(),
+                    tag_id: r.tag_id,
+                    start_ts: r.start_ts,
+                    end_ts: r.end_ts,
+                    note: None,
+                });
             }
             Ok((preview, TagUndo::inserted(inserted)))
         })();

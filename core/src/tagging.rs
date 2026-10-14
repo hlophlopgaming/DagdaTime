@@ -1,119 +1,218 @@
 use super::*;
 
-#[derive(Clone, Debug, PartialEq)]
-struct TagState {
-    tags: Vec<Value>,
-    ranges: Vec<Value>,
-    rules: Vec<Value>,
-}
 #[derive(Clone, Debug)]
+struct RowChange<T> {
+    id: i64,
+    before: Option<T>,
+    after: Option<T>,
+}
+#[derive(Clone, Debug, Default)]
 pub struct TagUndo {
-    change: TagUndoChange,
-}
-#[derive(Clone, Debug)]
-enum TagUndoChange {
-    Snapshot { before: TagState, after: TagState },
-    Inserted(Vec<Value>),
+    tags: Vec<RowChange<Tag>>,
+    ranges: Vec<RowChange<TagRange>>,
+    rules: Vec<RowChange<Rule>>,
 }
 impl TagUndo {
-    pub(crate) fn inserted(ranges: Vec<Value>) -> Self {
+    pub(crate) fn inserted(ranges: Vec<TagRange>) -> Self {
         Self {
-            change: TagUndoChange::Inserted(ranges),
+            ranges: ranges
+                .into_iter()
+                .map(|r| RowChange {
+                    id: r.id,
+                    before: None,
+                    after: Some(r),
+                })
+                .collect(),
+            ..Self::default()
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn retained_rows(&self) -> usize {
+        fn count<T>(rows: &[RowChange<T>]) -> usize {
+            rows.iter()
+                .map(|r| usize::from(r.before.is_some()) + usize::from(r.after.is_some()))
+                .sum()
+        }
+        count(&self.tags) + count(&self.ranges) + count(&self.rules)
     }
 }
 fn invalid(message: &str) -> StorageError {
     StorageError::InvalidRecord(message.into())
 }
-impl Storage {
-    fn tag_state(&self) -> Result<TagState, StorageError> {
-        Ok(TagState {
-            tags: self.list(Collection::Tags)?,
-            ranges: self.list(Collection::TagRanges)?,
-            rules: self.list(Collection::Rules)?,
-        })
+fn differences<T: PartialEq>(
+    before: Vec<T>,
+    after: Vec<T>,
+    id: impl Fn(&T) -> i64,
+) -> Vec<RowChange<T>> {
+    let mut before: std::collections::BTreeMap<_, _> =
+        before.into_iter().map(|r| (id(&r), r)).collect();
+    let mut result = Vec::new();
+    for row in after {
+        let id = id(&row);
+        let old = before.remove(&id);
+        if old.as_ref() != Some(&row) {
+            result.push(RowChange {
+                id,
+                before: old,
+                after: Some(row),
+            });
+        }
     }
+    result.extend(before.into_iter().map(|(id, row)| RowChange {
+        id,
+        before: Some(row),
+        after: None,
+    }));
+    result
+}
+fn ids(ids: impl Iterator<Item = i64>) -> String {
+    ids.map(|id| id.to_string()).collect::<Vec<_>>().join(",")
+}
+fn read_tags(c: &Connection, predicate: &str) -> Result<Vec<Tag>, StorageError> {
+    let mut query = c.prepare(&format!(
+        "SELECT id,name,color,parent_id,archived FROM tags WHERE {predicate} ORDER BY id"
+    ))?;
+    let rows = query
+        .query_map([], |r| {
+            Ok(Tag {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                color: r.get(2)?,
+                parent_id: r.get(3)?,
+                archived: r.get(4)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+fn read_ranges(c: &Connection, predicate: &str) -> Result<Vec<TagRange>, StorageError> {
+    let mut query = c.prepare(&format!(
+        "SELECT id,tag_id,start_ts,end_ts,note FROM tag_ranges WHERE {predicate} ORDER BY id"
+    ))?;
+    let rows = query
+        .query_map([], |r| {
+            Ok(TagRange {
+                id: r.get(0)?,
+                tag_id: r.get(1)?,
+                start_ts: r.get(2)?,
+                end_ts: r.get(3)?,
+                note: r.get(4)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+fn read_rules(c: &Connection, predicate: &str) -> Result<Vec<Rule>, StorageError> {
+    let mut query = c.prepare(&format!(
+        "SELECT id,field,pattern,tag_id,priority,enabled FROM rules WHERE {predicate} ORDER BY id"
+    ))?;
+    let rows = query
+        .query_map([], |r| {
+            Ok(Rule {
+                id: r.get(0)?,
+                field: r.get(1)?,
+                pattern: r.get(2)?,
+                tag_id: r.get(3)?,
+                priority: r.get(4)?,
+                enabled: r.get(5)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+impl Storage {
     fn tag_change(
         &mut self,
-        change: impl FnOnce(&Connection) -> Result<(), StorageError>,
+        scope: [&str; 3],
+        change: impl FnOnce(&Connection) -> Result<[Vec<i64>; 2], StorageError>,
     ) -> Result<TagUndo, StorageError> {
-        self.connection.execute_batch("BEGIN IMMEDIATE")?;
-        let result = (|| {
-            let before = self.tag_state()?;
-            change(&self.connection)?;
-            let after = self.tag_state()?;
-            Ok(TagUndo {
-                change: TagUndoChange::Snapshot { before, after },
-            })
-        })();
-        match result {
-            Ok(undo) => {
-                if let Err(error) = self.connection.execute_batch("COMMIT") {
-                    self.connection.execute_batch("ROLLBACK")?;
-                    return Err(error.into());
-                }
-                self.metadata_version = self.metadata_version.wrapping_add(1);
-                Ok(undo)
-            }
-            Err(error) => {
-                self.connection.execute_batch("ROLLBACK")?;
-                Err(error)
-            }
-        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tags = read_tags(&tx, scope[0])?;
+        let ranges = read_ranges(&tx, scope[1])?;
+        let rules = read_rules(&tx, scope[2])?;
+        let [inserted_tags, inserted_ranges] = change(&tx)?;
+        let after_tags = read_tags(
+            &tx,
+            &format!(
+                "id IN ({})",
+                ids(tags.iter().map(|r| r.id).chain(inserted_tags))
+            ),
+        )?;
+        let after_ranges = read_ranges(
+            &tx,
+            &format!(
+                "id IN ({})",
+                ids(ranges.iter().map(|r| r.id).chain(inserted_ranges))
+            ),
+        )?;
+        let after_rules = read_rules(&tx, &format!("id IN ({})", ids(rules.iter().map(|r| r.id))))?;
+        let undo = TagUndo {
+            tags: differences(tags, after_tags, |r| r.id),
+            ranges: differences(ranges, after_ranges, |r| r.id),
+            rules: differences(rules, after_rules, |r| r.id),
+        };
+        tx.commit()?;
+        self.metadata_version = self.metadata_version.wrapping_add(1);
+        Ok(undo)
     }
     pub fn undo_tags(&mut self, undo: TagUndo) -> Result<(), StorageError> {
-        if let TagUndoChange::Inserted(ranges) = &undo.change {
-            self.tag_change(|c| {
-                for range in ranges {
-                    let current: Option<String> = c
-                        .query_row(
-                            &format!("{} WHERE id=?1", Collection::TagRanges.select()),
-                            [range["id"].as_i64()],
-                            |r| r.get(0),
-                        )
-                        .optional()?;
-                    if current
-                        .as_deref()
-                        .map(serde_json::from_str::<Value>)
-                        .transpose()?
-                        .as_ref()
-                        != Some(range)
-                    {
-                        return Err(invalid(
-                            "Tags changed since this action; undo refused to protect newer edits",
-                        ));
-                    }
-                }
-                for range in ranges {
-                    c.execute("DELETE FROM tag_ranges WHERE id=?1", [range["id"].as_i64()])?;
-                }
-                Ok(())
-            })?;
-            return Ok(());
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Validate inside the write transaction so API edits cannot be lost.
+        for row in &undo.tags {
+            let current = read_tags(&tx, &format!("id={}", row.id))?.pop();
+            if current != row.after {
+                return Err(invalid(
+                    "Tags changed since this action; undo refused to protect newer edits",
+                ));
+            }
         }
-        let TagUndoChange::Snapshot { before, after } = undo.change else {
-            unreachable!()
-        };
-        self.tag_change(|connection| {
-            // Compare inside the write transaction so API edits cannot be lost.
-            let current = |collection: Collection| -> Result<Vec<Value>, StorageError> {
-                let mut query=connection.prepare(&format!("{} ORDER BY id",collection.select()))?;
-                let rows = query.query_map([], |r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                rows.into_iter().map(|r| Ok(serde_json::from_str(&r)?)).collect()
-            };
-            if (TagState { tags: current(Collection::Tags)?, ranges: current(Collection::TagRanges)?, rules: current(Collection::Rules)? }) != after { return Err(invalid("Tags changed since this action; undo refused to protect newer edits")); }
-            connection.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM rules; DELETE FROM tag_ranges; DELETE FROM tags;")?;
-            for tag in &before.tags {
-                connection.execute("INSERT INTO tags(id,name,color,parent_id,archived) VALUES(?1,?2,?3,?4,?5)", params![tag["id"].as_i64(),tag["name"].as_str(),tag["color"].as_str(),tag["parent_id"].as_i64(),tag["archived"].as_i64()])?;
+        for row in &undo.ranges {
+            let current = read_ranges(&tx, &format!("id={}", row.id))?.pop();
+            if current != row.after {
+                return Err(invalid(
+                    "Tags changed since this action; undo refused to protect newer edits",
+                ));
             }
-            for range in &before.ranges {
-                connection.execute("INSERT INTO tag_ranges(id,tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4,?5)", params![range["id"].as_i64(),range["tag_id"].as_i64(),range["start_ts"].as_i64(),range["end_ts"].as_i64(),range["note"].as_str()])?;
+        }
+        for row in &undo.rules {
+            let current = read_rules(&tx, &format!("id={}", row.id))?.pop();
+            if current != row.after {
+                return Err(invalid(
+                    "Tags changed since this action; undo refused to protect newer edits",
+                ));
             }
-            for rule in &before.rules {
-                connection.execute("INSERT INTO rules(id,field,pattern,tag_id,priority,enabled) VALUES(?1,?2,?3,?4,?5,?6)", params![rule["id"].as_i64(),rule["field"].as_str(),rule["pattern"].as_str(),rule["tag_id"].as_i64(),rule["priority"].as_i64(),rule["enabled"].as_i64()])?;
-            }
-            Ok(())
-        })?;
+        }
+        tx.execute_batch("PRAGMA defer_foreign_keys=ON")?;
+        for row in &undo.rules {
+            tx.execute("DELETE FROM rules WHERE id=?1", [row.id])?;
+        }
+        for row in &undo.ranges {
+            tx.execute("DELETE FROM tag_ranges WHERE id=?1", [row.id])?;
+        }
+        for row in &undo.tags {
+            tx.execute("DELETE FROM tags WHERE id=?1", [row.id])?;
+        }
+        for row in undo.tags.into_iter().filter_map(|r| r.before) {
+            tx.execute(
+                "INSERT INTO tags(id,name,color,parent_id,archived) VALUES(?1,?2,?3,?4,?5)",
+                params![row.id, row.name, row.color, row.parent_id, row.archived],
+            )?;
+        }
+        for row in undo.ranges.into_iter().filter_map(|r| r.before) {
+            tx.execute(
+                "INSERT INTO tag_ranges(id,tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4,?5)",
+                params![row.id, row.tag_id, row.start_ts, row.end_ts, row.note],
+            )?;
+        }
+        for row in undo.rules.into_iter().filter_map(|r| r.before) {
+            tx.execute("INSERT INTO rules(id,field,pattern,tag_id,priority,enabled) VALUES(?1,?2,?3,?4,?5,?6)", params![row.id,row.field,row.pattern,row.tag_id,row.priority,row.enabled])?;
+        }
+        tx.commit()?;
+        self.metadata_version = self.metadata_version.wrapping_add(1);
         Ok(())
     }
     /// Replace removes intersecting blocks; split preserves their outside portions.
@@ -140,14 +239,22 @@ impl Storage {
         if start < 0 || end <= start || names.iter().any(|s| s.is_empty()) {
             return Err(invalid("Use nonempty comma-separated tags and start < end"));
         }
-        self.tag_change(|connection| {
+        let ranges = format!(
+            "start_ts<{end} AND end_ts>{start} OR id={}",
+            id.unwrap_or(0)
+        );
+        self.tag_change(["0", &ranges, "0"], |connection| {
+            let mut inserted = Vec::new();
+            let mut inserted_tags = Vec::new();
             if let Some(id) = id { if connection.execute("DELETE FROM tag_ranges WHERE id=?1", [id])? == 0 { return Err(StorageError::NotFound); } }
             let mut parent: Option<i64> = None;
             for name in names {
                 let existing = connection.query_row("SELECT id FROM tags WHERE name=?1 AND parent_id IS ?2 AND archived=0 ORDER BY id LIMIT 1", params![name,parent], |r|r.get::<_,i64>(0)).optional()?;
                 parent = Some(if let Some(id) = existing { id } else {
                     connection.execute("INSERT INTO tags(name,parent_id) VALUES(?1,?2)", params![name,parent])?;
-                    connection.last_insert_rowid()
+                    let id = connection.last_insert_rowid();
+                    inserted_tags.push(id);
+                    id
                 });
             }
             let mut query = connection.prepare("SELECT id,tag_id,start_ts,end_ts,note FROM tag_ranges WHERE start_ts<?2 AND end_ts>?1")?;
@@ -156,20 +263,21 @@ impl Storage {
                 connection.execute("DELETE FROM tag_ranges WHERE id=?1", [id])?;
                 if !replace {
                     for (a,b) in [(from,start.min(to)),(end.max(from),to)] {
-                        if a < b { connection.execute("INSERT INTO tag_ranges(tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4)", params![tag,a,b,note])?; }
+                        if a < b { connection.execute("INSERT INTO tag_ranges(tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4)", params![tag,a,b,note])?; inserted.push(connection.last_insert_rowid()); }
                     }
                 }
             }
             connection.execute("INSERT INTO tag_ranges(tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4)", params![parent,start,end,note])?;
-            Ok(())
+            inserted.push(connection.last_insert_rowid());
+            Ok([inserted_tags, inserted])
         })
     }
     pub fn delete_tag_range(&mut self, id: i64) -> Result<TagUndo, StorageError> {
-        self.tag_change(|c| {
+        self.tag_change(["0", &format!("id={id}"), "0"], |c| {
             if c.execute("DELETE FROM tag_ranges WHERE id=?1", [id])? == 0 {
                 return Err(StorageError::NotFound);
             }
-            Ok(())
+            Ok([Vec::new(), Vec::new()])
         })
     }
     pub fn update_tag(
@@ -188,7 +296,7 @@ impl Storage {
         {
             return Err(invalid("Nonempty name and #RRGGBB color required"));
         }
-        self.tag_change(|c| {
+        self.tag_change([&format!("id={id}"), "0", "0"], |c| {
             if c.execute(
                 "UPDATE tags SET name=?2,color=?3,archived=?4 WHERE id=?1",
                 params![id, name.trim(), color, archived],
@@ -196,14 +304,14 @@ impl Storage {
             {
                 return Err(StorageError::NotFound);
             }
-            Ok(())
+            Ok([Vec::new(), Vec::new()])
         })
     }
     pub fn merge_tags(&mut self, source: i64, target: i64) -> Result<TagUndo, StorageError> {
         if source == target {
             return Err(invalid("Select another tag to merge into"));
         }
-        self.tag_change(|c| {
+        self.tag_change([&format!("id={source} OR parent_id={source}"), &format!("tag_id={source}"), &format!("tag_id={source}")], |c| {
             let cycle: bool = c.query_row("WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT tags.id FROM tags JOIN tree ON parent_id=tree.id) SELECT EXISTS(SELECT 1 FROM tree WHERE id=?2)", params![source,target], |r|r.get(0))?;
             if cycle { return Err(invalid("Cannot merge into a descendant")); }
             let exists: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM tags WHERE id=?1)", [target], |r|r.get(0))?;
@@ -212,16 +320,17 @@ impl Storage {
             c.execute("UPDATE rules SET tag_id=?2 WHERE tag_id=?1", params![source,target])?;
             c.execute("UPDATE tags SET parent_id=?2 WHERE parent_id=?1", params![source,target])?;
             if c.execute("DELETE FROM tags WHERE id=?1", [source])? == 0 { return Err(StorageError::NotFound); }
-            Ok(())
+            Ok([Vec::new(), Vec::new()])
         })
     }
     pub fn delete_tag_tree(&mut self, id: i64) -> Result<TagUndo, StorageError> {
-        self.tag_change(|c| {
+        let tree = format!("WITH RECURSIVE tree(id) AS (SELECT {id} UNION SELECT tags.id FROM tags JOIN tree ON parent_id=tree.id) SELECT id FROM tree");
+        self.tag_change([&format!("id IN ({tree})"), &format!("tag_id IN ({tree})"), &format!("tag_id IN ({tree})")], |c| {
             let tree = "WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT tags.id FROM tags JOIN tree ON parent_id=tree.id)";
             c.execute(&format!("{tree} DELETE FROM tag_ranges WHERE tag_id IN tree"), [id])?;
             c.execute(&format!("{tree} DELETE FROM rules WHERE tag_id IN tree"), [id])?;
             if c.execute(&format!("{tree} DELETE FROM tags WHERE id IN tree"), [id])? == 0 { return Err(StorageError::NotFound); }
-            Ok(())
+            Ok([Vec::new(), Vec::new()])
         })
     }
 }

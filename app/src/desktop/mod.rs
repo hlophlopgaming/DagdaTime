@@ -334,6 +334,12 @@ impl State {
         }
         (state, Task::batch([task, system_theme]))
     }
+    fn set_screen(&mut self, screen: &'static str) {
+        if matches!(self.screen, "Week" | "Reports") && self.screen != screen {
+            self.release_reports();
+        }
+        self.screen = screen;
+    }
     fn apply_theme(&mut self) {
         self.theme = native_theme(self.theme_preference.is_dark(self.system_theme));
         self.cache.clear();
@@ -584,7 +590,7 @@ impl State {
                 let message = match event.as_str() {
                     "open" => return self.open(true),
                     "settings" => {
-                        self.screen = "Settings";
+                        self.set_screen("Settings");
                         return self.open(true);
                     }
                     "start" => Message::Start,
@@ -836,7 +842,7 @@ impl State {
                 }
             }
             Message::Screen(screen) => {
-                self.screen = screen;
+                self.set_screen(screen);
                 if matches!(screen, "Overview" | "Week" | "Reports") {
                     return self.edit_report(reports::Edit::Refresh);
                 }

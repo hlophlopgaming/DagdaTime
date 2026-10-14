@@ -31,7 +31,7 @@ fn hierarchy_split_replace_and_undo_are_atomic() {
 }
 
 #[test]
-fn invalid_hierarchy_rolls_back_and_undo_detects_external_edits() {
+fn invalid_hierarchy_rolls_back_and_undo_preserves_unrelated_edits() {
     let mut db = Storage::open_in_memory().unwrap();
     assert!(db
         .tag_interval("Client, , Task", "", 0, 100, false)
@@ -40,8 +40,8 @@ fn invalid_hierarchy_rolls_back_and_undo_detects_external_edits() {
     let undo = db.tag_interval("Work", "", 0, 100, false).unwrap();
     db.put(Collection::Tags, None, json!({"name":"External"}))
         .unwrap();
-    assert!(db.undo_tags(undo).is_err());
-    assert_eq!(db.list(Collection::Tags).unwrap().len(), 2);
+    db.undo_tags(undo).unwrap();
+    assert_eq!(db.list(Collection::Tags).unwrap()[0]["name"], "External");
 }
 
 #[test]
@@ -215,4 +215,46 @@ fn subtree_deletion_and_merge_include_rules_and_children_and_undo_restores_ids()
     assert_eq!(db.list(Collection::Rules).unwrap()[0]["tag_id"], root);
     db.undo_tags(undo).unwrap();
     assert_eq!(db.list(Collection::Tags).unwrap(), tags);
+}
+
+#[test]
+fn undo_retains_only_changed_rows_in_large_history() {
+    let mut db = Storage::open_in_memory().unwrap();
+    db.connection.execute_batch("INSERT INTO tags(id,name) VALUES(1,'Work'); WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<5000) INSERT INTO tag_ranges(tag_id,start_ts,end_ts,note) SELECT 1,x*100,x*100+50,'history' FROM n;").unwrap();
+    let undo = db.update_tag(1, "Renamed", None, false).unwrap();
+    assert_eq!(undo.retained_rows(), 2);
+    db.undo_tags(undo).unwrap();
+    let undo = db.tag_interval("Work", "new", 10, 20, false).unwrap();
+    assert_eq!(undo.retained_rows(), 1);
+    db.undo_tags(undo).unwrap();
+    assert_eq!(db.tag_ranges(0, 600_000).unwrap().len(), 5000);
+}
+
+#[test]
+fn undo_conflict_is_atomic_and_preserves_new_dependents() {
+    let mut db = Storage::open_in_memory().unwrap();
+    let undo = db.tag_interval("Work", "", 0, 100, false).unwrap();
+    db.put(
+        Collection::TagRanges,
+        None,
+        json!({"tag_id":1,"start_ts":200,"end_ts":300}),
+    )
+    .unwrap();
+    assert!(db.undo_tags(undo).is_err());
+    assert_eq!(db.tag_ranges(0, 400).unwrap().len(), 2);
+    let undo = db.update_tag(1, "Rename", None, false).unwrap();
+    db.put(Collection::Tags, Some(1), json!({"name":"External"}))
+        .unwrap();
+    assert!(db.undo_tags(undo).is_err());
+    assert_eq!(db.tags().unwrap()[0].name, "External");
+}
+
+#[test]
+fn split_undo_handles_gaps_in_range_ids() {
+    let mut db = Storage::open_in_memory().unwrap();
+    db.connection.execute_batch("INSERT INTO tags(id,name) VALUES(1,'Work'); INSERT INTO tag_ranges(id,tag_id,start_ts,end_ts) VALUES(1,1,0,10),(10,1,100,200);").unwrap();
+    let before = db.tag_ranges(0, 300).unwrap();
+    let undo = db.tag_interval("Work", "", 120, 180, false).unwrap();
+    db.undo_tags(undo).unwrap();
+    assert_eq!(db.tag_ranges(0, 300).unwrap(), before);
 }

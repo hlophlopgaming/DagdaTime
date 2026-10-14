@@ -616,3 +616,51 @@ Windows CI rejected a needless return in the cfg-selected locale-provider branch
 remove it while retaining its existing fallback and API calls. Publish v0.2.1
 from the corrected commit. The already-pushed v0.2.0 candidate tag stays intact,
 and its failed check prevents the release workflow from publishing its binaries.
+
+## 2026-10-14 — M5.5 bounded tag undo
+
+Keep the existing 20-action desktop undo stack, but store typed before/after
+rows only for changed tags, ranges and rules. Read affected rows within the
+existing immediate SQLite write transaction; record actual inserted range IDs
+because SQLite can reuse deleted IDs during a split. Avoid whole-history reads
+and JSON snapshots, including when undoing applied rules. No persistent schema
+change or new dependency is needed.
+
+Undo validates changed rows within an immediate write transaction and restores
+only those rows, with deferred foreign-key validation at commit. Unrelated
+external edits now survive undo instead of blocking it; changed affected rows
+or new dependents that would become orphaned reject undo atomically. A bulk
+merge/delete/apply still retains memory proportional to its changed rows.
+
+## 2026-10-14 — M5.5 report and Week memory follow-up
+
+Keep one full Report for the selected range. Store only active time and tag/day
+sums for the timesheet; Week additionally retains run-length compressed colors
+in 1,440 elapsed-time bins per local day. Build status/diagnostic bands from
+computer and legacy AFK buckets only, never application/document tracks. Exact
+report intervals and totals remain independent of this visual approximation,
+including cross-midnight boundaries and 23/25-hour local days.
+
+Read history in complete event prefixes of approximately 8,192 events. Split
+at the first omitted timestamp, include spanning events/live tails and keep the
+global legacy-AFK cutoff. Calculate each prefix once, merge adjacent equivalent
+intervals and intern label strings in one Arc<str> pool for the whole report.
+Enable the existing serde dependency's rc feature to retain JSON string output.
+The localhost events API keeps its 100,000-event safety limit; reports and JSON
+archive export use prefixes to support larger ranges. Archive export deduplicates
+spanning event IDs and still necessarily retains its raw export payload.
+
+Week canvas geometry belongs to its loaded data and is cached by dimensions and
+theme. Centralize screen changes so sidebar, day buttons, tray settings/quick
+entry and away tagging all discard report data, invalidate pending results and
+call the existing MemoryReclaimer. Stale completions are dropped and reclaimed.
+Preserve Day editing state and the typed undo stack. No schema/platform/renderer
+changes or new dependencies are needed; window buffers and fallback fonts are
+measured as renderer resources, rather than removed.
+
+## 2026-10-14 — v0.2.2 memory maintenance release
+
+Publish the M5.5 undo/report/Week memory follow-ups and large-history reporting
+fixes as v0.2.2. Reuse the existing three-platform CI and tag-triggered release
+workflow; archives contain both desktop and CLI executables. Keep synthetic
+measurement limits and remaining real-platform checks in the release notes.

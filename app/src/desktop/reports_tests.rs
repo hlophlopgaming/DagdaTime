@@ -64,7 +64,7 @@ fn tiny_slices_preserve_total_and_expand_with_exact_members() {
             tag_id: None,
             tag: "Untagged".into(),
             application: app.into(),
-            document: String::new(),
+            document: "".into(),
         });
     }
     let s = reports::slices(&r, false);
@@ -124,5 +124,51 @@ fn month_preset_covers_short_long_leap_and_year_end_months() {
         let _ = state.edit_report(reports::Edit::Preset(2));
         assert_eq!(state.report_ui.from, format!("{year}-{month:02}-01"));
         assert_eq!(state.report_ui.to, format!("{year}-{month:02}-{days}"));
+    }
+}
+
+#[test]
+fn leaving_report_screens_releases_data_and_rejects_late_loads() {
+    for source in ["Week", "Reports"] {
+        for destination in ["Day", "Overview", "Tags", "Rules", "Settings"] {
+            let (mut state, _) = State::boot();
+            state.fixture = true;
+            state.screen = source;
+            let _ = state.edit_report(reports::Edit::Refresh);
+            let old = state.report_ui.generation;
+            let data = state.report_ui.data.clone().unwrap();
+            let _ = state.update(Message::Screen(destination));
+            assert!(state.report_ui.data.is_none(), "{source} -> {destination}");
+            let _ = state.edit_report(reports::Edit::Loaded(old, Ok(data)));
+            assert!(state.report_ui.data.is_none());
+        }
+    }
+}
+
+#[test]
+fn clicking_week_day_releases_report_data() {
+    let (mut state, _) = State::boot();
+    state.fixture = true;
+    state.screen = "Week";
+    let _ = state.edit_report(reports::Edit::Refresh);
+    let _ = state.edit_report(reports::Edit::OpenDay(state.date));
+    assert_eq!(state.screen, "Day");
+    assert!(state.report_ui.data.is_none());
+}
+
+#[test]
+fn tray_and_away_navigation_release_reports() {
+    for event in [
+        Message::Edit(tagging::Edit::Quick(5)),
+        Message::Edit(tagging::Edit::AwayTag),
+        Message::Tray(tray::Event::Menu("settings".into())),
+    ] {
+        let (mut state, _) = State::boot();
+        state.fixture = true;
+        state.screen = "Week";
+        state.away_range = Some(state.day);
+        let _ = state.edit_report(reports::Edit::Refresh);
+        let _ = state.update(event);
+        assert!(state.report_ui.data.is_none());
     }
 }

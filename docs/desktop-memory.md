@@ -23,8 +23,8 @@ measurement of each change. Earlier repeat runs had post-close PSS around
 Closing does not restore the exact cold-start baseline: the final run retained
 about 6 MiB more PSS than tray-only startup (private dirty memory: 4.81 vs
 2.31 MiB). Code/font/runtime caches and preserved editing/undo state may remain.
-Existing tag undo snapshots still cover whole tag history and are kept for up to
-20 actions; this milestone preserves undo rather than silently discarding it.
+At the time of these measurements, tag undo snapshots covered whole history
+and were kept for up to 20 actions. The follow-up below replaces those snapshots.
 No heaptrack attribution or minute-long settling measurement was performed.
 One repeated native Wayland run timed out in the runtime diagnostic (30 seconds).
 A diagnostic rerun and three further isolated runtime runs passed; the timeout
@@ -60,3 +60,128 @@ Manual verification remaining:
 For longer measurements, open and close the normal application on an isolated
 fixture database and sample smaps_rollup after a minute. Compare PSS, not only RSS;
 check preserved undo separately after editing a large history.
+
+## M5.5 follow-up: typed row undo
+
+Tag editing and rule-history application now retain typed changes only for rows
+actually changed. Renaming one tag in a fixture with 5,000 ranges retains two
+Tag values and no ranges; inserting a nonoverlapping range under an existing
+tag retains one TagRange. Undo no longer constructs whole-history snapshots.
+Regression tests cover splits with gaps/reused IDs, LIFO restoration, subtree
+and merge restoration including rules, independent external edits, conflicting
+edits and rollback when new dependent rows would be orphaned.
+
+The earlier PSS/RSS figures were not rerun for the undo-only follow-up.
+Week/report retention is addressed and measured in the later follow-up below;
+renderer/font buffers remain managed by Iced. Bulk operations still
+retain all changed rows, rather than a fixed memory bound. Manual desktop
+verification on Linux/X11/Wayland, Windows and macOS: tag/split/move/rename,
+apply rules, undo repeatedly, close/reopen and confirm undo still works.
+
+Follow-up verification (offline, 2026-10-14): `cargo fmt --check` passed;
+`cargo clippy --all-targets -- -D warnings` passed; `cargo test` passed with
+164 tests, 0 failures and 7 ignored environment-dependent checks. The 55 core
+tests include the new undo regressions. Full workspace tests and clippy ran
+with `CARGO_NET_OFFLINE=true`; no crates.io access was needed.
+
+## M5.5 follow-up: Week and reports
+
+Reports now load one shared range report, then clip its ordered intervals to
+local days to aggregate timesheet cells. Days retain only totals, not copies of
+intervals or full tracks. Week retains three run-length compressed color bands
+(computer state, diagnostic overlay, assigned tags), bounded by 1,440 cells per
+band. On DST days these bins divide elapsed day length rather than representing
+exact wall-clock minutes. Subminute visual detail may merge; numeric totals,
+selection in Day and exported intervals remain exact.
+
+Core history reads approximately 8,192 events at a time, clipping complete
+prefixes at timestamp boundaries and preserving live tails. This removes the
+100,000-event limit from reports and JSON archive export while keeping the
+localhost event-query cap. Report labels use interned Arc<str>; equivalent
+adjacent intervals are compared before label allocation. A timestamp with more
+than 8,192 simultaneous buckets is read together; normal tracker buckets do
+not approach this case. Full output intervals and raw JSON archives still
+require memory proportional to their output size.
+
+Leaving Week/Reports drops data, day-owned canvas caches and pending-load
+ownership before invoking MemoryReclaimer. Old completions cannot repopulate a
+hidden screen and are reclaimed when delivered. This includes day buttons,
+sidebar navigation, tray settings/quick tagging and away tagging. Week geometry
+rebuilds only for new data, changed dimensions or changed theme.
+
+### Release measurements
+
+Linux X11 through XWayland, tiny-skia, 2026-10-14. Built the pre-report-fix source
+in an isolated /tmp copy and the current source with the same Rust toolchain and
+cached dependencies, offline. Each GUI process used isolated data/config paths
+and the existing --benchmark fixture (5,000 events per generated day). Sampled
+smaps_rollup at 4 seconds with the window open, and at 9/11 seconds after its
+automatic close at 7 seconds. One run per table row; these are synthetic
+observations, not bounds for personal history. The undo fix is present in both
+builds, so these figures isolate the subsequent report/Week work.
+
+| Scenario | Before PSS | After PSS | Before RSS | After RSS |
+|---|---:|---:|---:|---:|
+| Week open, 1280×820 | 76.55 MiB | 35.62 MiB | 85.54 MiB | 44.62 MiB |
+| Week closed, 11 seconds | 19.50 MiB | 19.33 MiB | 26.48 MiB | 26.34 MiB |
+| Reports open, default 1280×820 | 32.92 MiB | 29.25 MiB | 41.98 MiB | 38.09 MiB |
+| Reports closed, 11 seconds | 19.43 MiB | 19.05 MiB | 26.48 MiB | 25.89 MiB |
+
+Week PSS decreased about 53%. Observed canvas build maxima in the Week fixture
+were 4.69 ms before and 0.02 ms after; the latter reflects compressed/cached
+Week geometry. A separate monthly CLI fixture had 93,000 alternating window
+events with repeated long titles plus 31 active-state events. Exact CSV output
+matched before/after. Linux wait4 max RSS and elapsed-time observations are
+recorded below; fixture generation streamed rows to avoid inheriting a large
+Python parent working set in the measured child.
+
+| Monthly CLI report | Before | After |
+|---|---:|---:|
+| Peak RSS | 159.65 MiB | 26.62 MiB |
+| Elapsed time | 0.318 s | 0.234 s |
+
+The final implementation reduced this fixture's peak RSS about 83%. Report
+prefixes are bounded by event count, rather than iterating over every calendar
+day, so large empty timestamp ranges also complete directly.
+
+Size checks with the new release:
+
+| Actual Day window | Open PSS | Closed PSS at 11 seconds |
+|---|---:|---:|
+| 1280×820 | 30.89 MiB | 20.37 MiB |
+| 1920×1020 | 33.60 MiB | 20.53 MiB |
+
+The window manager clamped requests for 2560×1440 and 3840×2160 to 1920×1020;
+PNG screenshot dimensions confirmed the actual sizes. This is not a real 4K
+measurement. In a repeated 1920×1020 run, the softbuffer shared-memory mapping
+held 7.47 MiB RSS while open and disappeared after close. Font-file mappings
+held 0.64 MiB RSS, unchanged after close, on this fixture. This does not measure
+additional CJK/emoji fallback fonts in personal window titles. Iced's installed
+tiny-skia compositor resizes softbuffer and replaces its clip mask when the
+surface size changes; window destruction releases the surface. No renderer or
+font-backend replacement was warranted by these observations.
+
+### Verification and remaining manual checks
+
+Regression tests cover >100,000 events in one dense interval (report and JSON
+archive), buffered live tails, cross-batch overlap/legacy-AFK cutoff parity,
+string identity and JSON output, large empty timestamp ranges, cross-midnight
+day totals, 23/25-hour bin boundaries, bounded bands, geometry cache reuse and
+resize/theme invalidation, navigation cleanup and stale completions.
+
+Final offline checks: `cargo fmt --check` passed;
+`cargo clippy --all-targets -- -D warnings` passed; `cargo test` passed with
+174 tests, 0 failures and 7 ignored environment-dependent checks.
+`cargo build --release --workspace` passed. The resulting executables are in
+`target/release/draugr-time` and `target/release/draugr-time-cli`.
+A native Wayland `--smoke-test --screen Week` run passed with 5,000 fixture
+events and a 0.02 ms observed maximum canvas build time; the X11/XWayland
+benchmark runs above also exited successfully. All fixture data and temporary
+measurement scripts/logs stayed under /tmp; personal history was not loaded.
+
+Manually verify Windows/macOS and a real Linux desktop session with personal
+history: Week → Day/Reports/Settings and tray/away navigation; report totals,
+colors, CSV/JSON export, theme changes and close/reopen with undo preserved.
+On real 1440p/4K displays, measure smaps_rollup before/after maximize, restore
+and close; compare font mappings after Cyrillic/CJK/emoji titles. Subminute
+Week bins are intentionally approximate; use Day for exact selection/editing.

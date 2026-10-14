@@ -107,7 +107,6 @@ impl State {
             .and_then(|r| change(&mut r.shared.storage.lock().unwrap()).map_err(|e| e.to_string()));
         match result {
             Ok(undo) => {
-                // shortcut: keep 20 in-memory undo snapshots; use row deltas for large histories.
                 if self.tag_undo.len() == 20 {
                     self.tag_undo.remove(0);
                 }
@@ -134,7 +133,7 @@ impl State {
             Edit::Quick(minutes) => {
                 let end = draugr_time_daemon::now_ms();
                 self.change_date(Local::now().date_naive());
-                self.screen = "Day";
+                self.set_screen("Day");
                 self.selection = Some(Range::new((end - minutes * 60_000).max(0), end));
                 let focus = self.edit(Edit::Open);
                 return Task::batch([self.open(true), focus]);
@@ -314,7 +313,7 @@ impl State {
             Edit::AwayTag => {
                 if let Some(range) = self.away_range {
                     self.selection = Some(range);
-                    self.screen = "Day";
+                    self.set_screen("Day");
                     return self.edit(Edit::Open);
                 }
             }

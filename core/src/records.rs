@@ -70,8 +70,23 @@ impl Storage {
         from: i64,
         to: i64,
     ) -> Result<Vec<Event>, StorageError> {
-        if from < 0 || to <= from {
-            return Err(invalid("expected 0 <= from < to"));
+        let (events, end) = self.event_chunk(bucket, from, to, 100_001)?;
+        if end < to || events.len() > 100_000 {
+            return Err(invalid("too many events; query a shorter interval"));
+        }
+        Ok(events)
+    }
+
+    /// Return a complete prefix; an omitted event's start is the next chunk boundary.
+    pub fn event_chunk(
+        &self,
+        bucket: Option<&str>,
+        from: i64,
+        to: i64,
+        limit: i64,
+    ) -> Result<(Vec<Event>, i64), StorageError> {
+        if from < 0 || to <= from || limit <= 0 {
+            return Err(invalid("expected 0 <= from < to and positive batch size"));
         }
         // Events in one bucket never overlap: heartbeats are nondecreasing and a new
         // event starts at or after the previous end. So the only event that can begin
@@ -92,11 +107,16 @@ impl Storage {
                 AND e.start_ts >= COALESCE((SELECT MAX(p.start_ts) FROM events p
                     WHERE p.bucket = buckets.name AND p.start_ts <= ?2), ?2)
                 AND e.start_ts < ?3 AND e.end_ts > ?2
-            ORDER BY e.start_ts, e.id LIMIT 100001",
+            ORDER BY e.start_ts, e.id LIMIT ?4",
         )?;
         let mut events = statement
-            .query_map(params![bucket, from, to], event_from_row)?
+            .query_map(params![bucket, from, to, limit], event_from_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        let end = if events.len() as i64 == limit {
+            events.last().unwrap().start_ts
+        } else {
+            to
+        };
         // A persisted end may fall outside the SQL range while its live end reaches it.
         for tail in self.tails.values() {
             if bucket.is_none_or(|bucket| tail.bucket == bucket) {
@@ -106,11 +126,9 @@ impl Storage {
                 }
             }
         }
+        events.retain(|event| event.start_ts < end);
         events.sort_by_key(|event| (event.start_ts, event.id));
-        if events.len() > 100_000 {
-            return Err(invalid("too many events; query a shorter interval"));
-        }
-        Ok(events)
+        Ok((events, end))
     }
 
     /// Close a sampled interval only across a short, continuously observed gap.

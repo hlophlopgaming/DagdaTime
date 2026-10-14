@@ -167,7 +167,7 @@ fn inactive_states_gaps_and_diagnostics_do_not_invent_work() {
     )];
     let r = Report::calculate(&events, &[], &[], 0, 20).unwrap();
     assert_eq!(r.active_ms, 10);
-    assert_eq!(r.intervals[0].application, "Unknown application");
+    assert_eq!(r.intervals[0].application.as_ref(), "Unknown application");
     assert_eq!(
         Report::calculate(&[], &[], &[], 0, 100).unwrap().active_ms,
         0
@@ -374,4 +374,162 @@ fn archive_roundtrip_preserves_overlap_precedence_and_boundary_markers() {
         shape(source.report(0, 100).unwrap())
     );
     assert_eq!(target.events(Some("lifecycle"), 0, 100).unwrap().len(), 2);
+}
+
+#[test]
+fn dense_report_exceeds_api_event_limit_without_losing_live_tails() {
+    let mut db = Storage::open_in_memory().unwrap();
+    db.connection.execute_batch("WITH RECURSIVE n(x) AS (VALUES(0) UNION ALL SELECT x+1 FROM n WHERE x<100000) INSERT INTO events(bucket,start_ts,end_ts,data) SELECT 'window',x*10,x*10+10,'{\"app\":\"editor\",\"title\":\"draft\"}' FROM n;").unwrap();
+    db.record_interval("afk", &json!({"status":"active"}), 0, 1_000_020)
+        .unwrap();
+    db.record_interval(
+        "window",
+        &json!({"app":"terminal","title":"shell"}),
+        1_000_010,
+        1_000_020,
+    )
+    .unwrap();
+    for timestamp in [1_000_020, 1_000_030] {
+        let mut batch = db.buffered_batch(timestamp);
+        batch
+            .heartbeat("afk", &json!({"status":"active"}), timestamp, 3000)
+            .unwrap();
+        batch
+            .heartbeat(
+                "window",
+                &json!({"app":"terminal","title":"shell"}),
+                timestamp,
+                3000,
+            )
+            .unwrap();
+        batch.commit().unwrap();
+    }
+    let persisted: i64 = db
+        .connection
+        .query_row(
+            "SELECT end_ts FROM events WHERE bucket='window' ORDER BY start_ts DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(persisted, 1_000_020);
+    assert!(db.events(None, 0, 1_000_030).is_err());
+    let report = db.report(0, 1_000_030).unwrap();
+    assert_eq!(report.active_ms, 1_000_030);
+    assert_eq!(report.intervals.len(), 2);
+    assert_eq!(
+        report.intervals.last().unwrap().application.as_ref(),
+        "terminal"
+    );
+    let archive = db.export_archive(0, 1_000_030).unwrap();
+    assert_eq!(archive.events.len(), 100_003);
+    assert_eq!(
+        archive
+            .events
+            .iter()
+            .map(|e| e.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        100_003
+    );
+    assert!(archive.events.iter().all(|e| e.end_ts <= 1_000_030));
+}
+
+#[test]
+fn report_interns_repeated_labels_and_preserves_json_strings() {
+    let events = [
+        Event {
+            id: 1,
+            bucket: "afk".into(),
+            start_ts: 0,
+            end_ts: 30,
+            data: json!({"status":"active"}),
+        },
+        Event {
+            id: 2,
+            bucket: "window".into(),
+            start_ts: 0,
+            end_ts: 10,
+            data: json!({"app":"Editor","title":"draft"}),
+        },
+        Event {
+            id: 3,
+            bucket: "window".into(),
+            start_ts: 10,
+            end_ts: 20,
+            data: json!({"app":"Terminal","title":"shell"}),
+        },
+        Event {
+            id: 4,
+            bucket: "window".into(),
+            start_ts: 20,
+            end_ts: 30,
+            data: json!({"app":"Editor","title":"draft"}),
+        },
+    ];
+    let report = Report::calculate(&events, &[], &[], 0, 30).unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &report.intervals[0].application,
+        &report.intervals[2].application
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &report.intervals[0].document,
+        &report.intervals[2].document
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &report.intervals[0].tag,
+        &report.intervals[2].tag
+    ));
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(json["intervals"][0]["application"], "Editor");
+}
+
+#[test]
+fn report_batch_boundaries_match_whole_calculation_with_overlap_and_legacy_cutoff() {
+    let mut db = Storage::open_in_memory().unwrap();
+    db.connection.execute_batch("WITH RECURSIVE n(x) AS (VALUES(0) UNION ALL SELECT x+1 FROM n WHERE x<17000) INSERT INTO events(bucket,start_ts,end_ts,data) SELECT 'window',x*10,x*10+10,CASE WHEN x%2=0 THEN '{\"app\":\"Editor\",\"title\":\"draft\"}' ELSE '{\"app\":\"Terminal\",\"title\":\"shell\"}' END FROM n;").unwrap();
+    db.record_interval("afk", &json!({"status":"active"}), 0, 170_010)
+        .unwrap();
+    db.record_interval(
+        "computer",
+        &json!({"machine":"awake","activity":"away","recording":"recording"}),
+        160_000,
+        170_010,
+    )
+    .unwrap();
+    db.tag_interval("Work", "", 40_000, 120_000, false).unwrap();
+    db.put(
+        Collection::TagRanges,
+        None,
+        json!({"tag_id":1,"start_ts":80_000,"end_ts":170_010}),
+    )
+    .unwrap();
+    let mut events = db.events(None, 0, 170_010).unwrap();
+    for e in &mut events {
+        if e.bucket == "afk" {
+            e.end_ts = e.end_ts.min(160_000);
+        }
+    }
+    let expected = Report::calculate(
+        &events,
+        &db.tags().unwrap(),
+        &db.tag_ranges(0, 170_010).unwrap(),
+        0,
+        170_010,
+    )
+    .unwrap();
+    let actual = db.report(0, 170_010).unwrap();
+    assert_eq!(actual, expected);
+    assert!(std::sync::Arc::ptr_eq(
+        &actual.intervals[0].application,
+        &actual.intervals[16_000 - 2].application
+    ));
+}
+
+#[test]
+fn empty_report_handles_large_timestamp_ranges_without_daily_iteration() {
+    let db = Storage::open_in_memory().unwrap();
+    let report = db.report(0, i64::MAX).unwrap();
+    assert_eq!(report.active_ms, 0);
+    assert!(report.intervals.is_empty());
 }
