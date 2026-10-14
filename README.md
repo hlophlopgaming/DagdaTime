@@ -27,7 +27,7 @@ ManicTime's workflow. Your history stays on your computer.
 - Wayland backends for GNOME, KDE, Sway and Hyprland. GNOME/KDE need a local
   compositor bridge; see [Wayland setup](docs/wayland.md).
 - Day timeline with computer, application, document and tag tracks; zoom, pan,
-  range selection and duration summaries. Tag editing comes in M5.
+  range selection, duration summaries, hierarchical tags and away-time tagging.
 - Background recording, tray controls, pause/resume and optional startup at login.
 - Local SQLite storage and a selectable data folder.
 
@@ -74,7 +74,7 @@ and [desktop usage](docs/desktop.md) for settings and platform notes.
 
 - [x] **M0–M3.5:** workspace, storage, native watchers, local API and desktop shell.
 - [x] **M4:** Day timeline, range selection and summaries.
-- [ ] **M5:** tag editing, tag manager and away-time tagging.
+- [x] **M5:** tag editing, tag manager and away-time tagging.
 - [ ] **M6:** automatic tagging rules.
 - [ ] **M7:** Week view, reports, CSV/JSON export and ActivityWatch import.
 - [ ] **M9:** Firefox/Chromium extension for browser URLs.

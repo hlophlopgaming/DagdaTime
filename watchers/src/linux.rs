@@ -96,15 +96,45 @@ impl WindowWatcher for X11Watcher {
         else {
             return Ok(None);
         };
-        let title = self.property(window, self.title, self.utf8)?;
+        // The active window must be known first; its independent properties share one RTT.
+        let title = self
+            .connection
+            .get_property(false, window, self.title, self.utf8, 0, 16_384)
+            .map_err(platform)?;
+        let legacy = self
+            .connection
+            .get_property(
+                false,
+                window,
+                AtomEnum::WM_NAME,
+                AtomEnum::STRING,
+                0,
+                16_384,
+            )
+            .map_err(platform)?;
+        let class = self
+            .connection
+            .get_property(
+                false,
+                window,
+                AtomEnum::WM_CLASS,
+                AtomEnum::STRING,
+                0,
+                16_384,
+            )
+            .map_err(platform)?;
+        let pid = self
+            .connection
+            .get_property(false, window, self.pid, AtomEnum::CARDINAL, 0, 1)
+            .map_err(platform)?;
+        let title = title.reply().map_err(platform)?;
+        let legacy = legacy.reply().map_err(platform)?;
         let title = if title.type_ == self.utf8 {
             String::from_utf8_lossy(&title.value).into_owned()
         } else {
-            let legacy =
-                self.property(window, AtomEnum::WM_NAME.into(), AtomEnum::STRING.into())?;
             legacy.value.iter().map(|byte| char::from(*byte)).collect()
         };
-        let class = self.property(window, AtomEnum::WM_CLASS.into(), AtomEnum::STRING.into())?;
+        let class = class.reply().map_err(platform)?;
         let parts: Vec<_> = class
             .value
             .split(|byte| *byte == 0)
@@ -114,8 +144,9 @@ impl WindowWatcher for X11Watcher {
             .last()
             .map(|value| String::from_utf8_lossy(value).into_owned())
             .unwrap_or_default();
-        let pid = self
-            .property(window, self.pid, AtomEnum::CARDINAL.into())?
+        let pid = pid
+            .reply()
+            .map_err(platform)?
             .value32()
             .and_then(|mut values| values.next())
             .filter(|pid| *pid != 0);

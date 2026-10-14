@@ -29,6 +29,7 @@ struct Shown {
 }
 impl NativeTray {
     pub fn new() -> Result<Self, String> {
+        channel();
         #[cfg(target_os = "linux")]
         gtk::init().map_err(|e| e.to_string())?;
         let menu = Menu::new();
@@ -37,15 +38,17 @@ impl NativeTray {
         let status = MenuItem::new("Not recording", false, None);
         let activity = MenuItem::new("No current activity", false, None);
         let total = MenuItem::new("Active time: —", false, None);
-        let quick = MenuItem::new("Tag recent time (M5)", false, None);
+        let quick = MenuItem::with_id("quick15", "Tag last 15 minutes", true, None);
+        let quick5 = MenuItem::with_id("quick5", "Tag last 5 minutes", true, None);
+        let quick60 = MenuItem::with_id("quick60", "Tag last hour", true, None);
         let pause = MenuItem::with_id("pause", "Pause until resumed", false, None);
         let pause15 = MenuItem::with_id("pause15", "Pause for 15 minutes", true, None);
         let resume = MenuItem::with_id("resume", "Resume tracking", false, None);
         let settings = MenuItem::with_id("settings", "Settings", true, None);
         let quit = MenuItem::with_id("quit", "Quit Draugr Time", true, None);
         menu.append_items(&[
-            &open, &status, &activity, &total, &start, &quick, &pause, &pause15, &resume,
-            &settings, &quit,
+            &open, &status, &activity, &total, &start, &quick, &quick5, &quick60, &pause, &pause15,
+            &resume, &settings, &quit,
         ])
         .map_err(|e| e.to_string())?;
         let icon = TrayIconBuilder::new()
@@ -81,7 +84,9 @@ impl NativeTray {
         let (label, color) = match state {
             "tracking" => ("Tracking", [56, 162, 128]),
             "paused" => ("Paused", [217, 165, 56]),
-            "away" => ("Away", [217, 165, 56]),
+            "locked" => ("Locked", [160, 137, 181]),
+            "asleep" => ("Sleep", [111, 128, 162]),
+            "away" => ("AFK", [217, 165, 56]),
             "error" => ("Needs attention", [208, 83, 83]),
             "starting" => ("Starting", [130, 145, 160]),
             _ => ("Not recording", [130, 145, 160]),
@@ -135,17 +140,40 @@ impl NativeTray {
 
 #[cfg(not(target_os = "linux"))]
 pub type Tray = NativeTray;
-#[cfg(not(target_os = "linux"))]
-impl NativeTray {
-    pub fn events() -> Vec<String> {
-        menu_events()
-    }
+#[derive(Clone, Debug)]
+pub enum Event {
+    Menu(String),
+    Status(Value),
 }
-fn menu_events() -> Vec<String> {
-    MenuEvent::receiver()
-        .try_iter()
-        .map(|event| event.id.as_ref().to_owned())
-        .collect()
+fn channel() -> &'static tokio::sync::broadcast::Sender<Event> {
+    static CHANNEL: std::sync::OnceLock<tokio::sync::broadcast::Sender<Event>> =
+        std::sync::OnceLock::new();
+    CHANNEL.get_or_init(|| {
+        let (sender, _) = tokio::sync::broadcast::channel(64);
+        let events = sender.clone();
+        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+            let _ = events.send(Event::Menu(event.id.as_ref().to_owned()));
+        }));
+        sender
+    })
+}
+pub fn push_status(status: Value) {
+    let _ = channel().send(Event::Status(status));
+}
+pub fn events() -> impl iced::futures::Stream<Item = Event> {
+    use iced::futures::SinkExt;
+    let mut receiver = channel().subscribe();
+    iced::stream::channel(64, async move |mut output| loop {
+        match receiver.recv().await {
+            Ok(event) => {
+                if output.send(event).await.is_err() {
+                    break;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(_) => break,
+        }
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -176,9 +204,6 @@ mod linux {
             let _ = self
                 .sender
                 .send(Command::Update(status.clone(), active, fixture));
-        }
-        pub fn events() -> Vec<String> {
-            menu_events()
         }
     }
     impl Drop for Tray {

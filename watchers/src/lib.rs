@@ -80,3 +80,8 @@ pub use macos::MacWatcher as NativeWatcher;
 
 #[cfg(test)]
 mod tests;
+
+mod lifecycle;
+pub use lifecycle::{
+    ComputerWatcher, LifecycleCallback, LifecycleEvent, LifecycleKind, NativeComputerWatcher,
+};

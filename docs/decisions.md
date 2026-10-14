@@ -318,3 +318,122 @@ Time. Register the current executable before disabling the old entry; failures
 leave the legacy entry enabled. An existing disabled preference stays disabled.
 Diagnostic runs never migrate the user's startup settings. Moving the binary
 later still requires toggling startup to update its registered path.
+
+## 2026-10-14 — Buffer live tails and load desktop history incrementally
+
+Stage tracker ticks in memory and persist every 30 seconds. First observations,
+window/AFK transitions, loss of an observed backend, pause and orderly shutdown
+flush immediately. `Storage::events` overlays live ends, including events whose
+persisted end is before the query boundary. Stage whole ticks before committing;
+a failed write retains the previous overlay for retry. The existing durable
+heartbeat/batch API flushes and invalidates cached tails before writing. No schema
+change. A process crash can lose up to 30 seconds of stable interval extensions;
+SQLite NORMAL/WAL durability remains unchanged. Call `Shared::shutdown` for
+shutdown so pending data is flushed and the API is notified.
+
+Fetch the last start timestamp inclusively for each displayed bucket, replacing
+only that tail (equal-start events included). Keep the stale-load generation
+check. Copy query results under the storage lock, build segments and resolve icons
+after releasing it. Reload tags/ranges on a local CRUD revision or SQLite
+`data_version` change; an external commit also invalidates event cursors. Rebuild
+synthetic unobserved/untagged intervals from the merged tracks. Filter by indices,
+cache lowercase search text, and intern segment strings as `Arc<str>` within each
+loaded batch. Separate the timeline grid cache from event geometry.
+
+Deliver tray menu events through an Iced channel subscription. Background workers
+publish status only when relevant fields change; timestamps and idle-second
+increments alone do not wake the GUI. Tick once per second with an open window;
+keep ticks for explicit lifecycle/benchmark diagnostics. Windows joins Linux in
+sampling independently of the GUI. macOS retains a one-second hidden-window tick
+because AppKit sampling belongs on the main thread. The localhost API uses one
+current-thread Tokio runtime and a Notify shutdown signal instead of polling.
+Linux/Windows sampling subtracts work time from the one-second sleep.
+
+Keep only the last foreground Windows process handle/path plus a reusable UTF-16
+buffer. The retained process identity and exit check prevent stale paths on PID
+reuse without an unbounded PID cache. Pipeline X11 window-property requests after
+the dependent active-window query (two RTT phases, rather than one per property).
+GNOME/KDE bridges push focus/title changes, with lightweight one-second liveness /
+idle heartbeats. Preserve the old D-Bus methods for existing extensions. GNOME
+resends focus when a new daemon has no sample; KDE additionally resends every 30
+seconds for restart recovery. A missing bridge still expires after three seconds.
+
+Validation: the 600-second stable two-bucket SQLite simulation writes 2,480,272
+bytes of WAL with durable per-tick batches versus 90,672 bytes with buffered ticks
+(27.4x less, autocheckpoint disabled for measurement). This is a write-volume
+fixture, not a battery-life measurement. Tests cover overlay query boundaries,
+periodic flush, rollback/retry, pause/shutdown persistence, incremental/full-history
+equivalence with gaps and tags, string sharing and bridge heartbeats.
+
+
+## 2026-10-14 — Plan evidence-based computer states before tagging
+
+At the user's request, schedule M4.5 before M5 to investigate and implement
+reliable local distinctions between active application use, AFK, sleep/off and
+tracking health. Reserve `Unobserved` for diagnostic observation failures, with a
+reason; keep pause, stopped recording and unexplained recording gaps separate.
+Heartbeat gaps alone do not prove shutdown or AFK. Select platform mechanisms and
+reconstruction rules only after the investigation; this decision changes the plan,
+not the current tracker behavior or database schema.
+
+## 2026-10-14 — M4.5 computer evidence separate from activity and collection health
+
+Store `computer` events in the existing event schema with independent machine,
+activity, recording-health, lock, window-availability, source and reason fields.
+Keep AFK/window buckets compatible. The desktop uses legacy AFK only before the
+first computer event; computer evidence then drives the Computer track, while
+valid idle survives missing window permission. Unobserved is a diagnostic with a
+reason; unexplained sampling gaps and restart gaps are No recording. Pause and
+orderly stop remain explicit and never imply power-off. A restart after a pending
+sleep marker does not extend sleep without a received wake boundary.
+
+Register native lifecycle callbacks behind ComputerWatcher independently of focus
+watchers. Linux uses logind, own graphical session LockedHint and a delay inhibitor;
+Windows uses a dedicated hidden notification window with WTS initial state;
+macOS uses main-thread NSWorkspace observers. Close observed work, persist the
+state boundary and flush before returning from a pre-sleep/shutdown callback.
+Inhibitor denial is exposed; a slow/failing disk may exceed the OS grace period.
+Receipt-time spans include preparation/scheduling overhead. Clamp delayed callback
+boundaries to the last stored end. Do not query focus while known locked/asleep.
+
+Shutdown intent is not completed shutdown. Local-source research did not validate
+reliable retained physical-off boundaries on all platforms, so no history parser
+or inferred off interval is added. Unsupported lock/history capabilities remain
+visible in Status & permissions. Full capability table, sources, limitations and
+manual OS checks: `docs/computer-state-research.md`. No schema change.
+
+Keep newly received OS state in memory even when its database marker fails. Only
+extend a sleep/lock interval across a long gap if the stored tail already has the
+same state, so a failed suspend marker cannot turn sleep into active time. A
+SQLite-trigger regression test exercises this failure without requiring an OS.
+
+## 2026-10-14 — M5 tag editing and away prompts
+
+Tag hierarchy remains the existing `parent_id` tree; comma-separated paths reuse
+non-archived siblings. A new migration 002 adds `archived` without changing the
+original migration. Archive hides a tag from suggestions and retains its history.
+Renaming updates all historical labels. Merge moves ranges, rules and children;
+merging into a descendant is rejected. Confirmed subtree deletion removes its
+ranges and rules; the dialog shows affected interval count and union duration.
+
+The desktop uses core storage commands under the runtime storage mutex; it never
+issues SQL. Core tag operations are atomic SQLite transactions. Split preserves
+both outside portions of every intersecting block; Replace deletes entire
+intersecting blocks. Edits, moves and resizes exclude their original block from
+conflict handling. Canvas blocks retain their full persisted interval alongside
+the day-clipped display interval, avoiding lost history across midnight.
+
+Undo retains the last 20 tag actions in memory, including tags, ranges and rules.
+It compares the current state inside the write transaction before restoring a
+snapshot, rejecting undo after another local client edits metadata. Event history
+is untouched. This is intentionally simple for M5; large tag histories should use
+row deltas instead of snapshots. Undo does not survive restarting the application.
+
+Away prompts use full computer-state intervals, independently of the viewed day.
+Only contiguous, observed AFK followed by active use qualifies: awake, unlocked,
+with recording or a valid activity observation during diagnostic `unobserved`.
+Sleep/off/lock, pause, stopped/unknown recording and unexplained gaps never count
+as AFK. Adjacent AFK samples with different diagnostic health merge for the prompt.
+Prompts start at 15 minutes, have recent-tag shortcuts, and can be disabled or
+changed to 30/60 minutes. The threshold persists locally in `away-prompt.json`.
+Already completed intervals at application startup are not prompted again.

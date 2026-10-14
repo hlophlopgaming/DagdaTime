@@ -35,6 +35,7 @@ pub struct Interaction {
     shift: bool,
     last_click: Option<(Instant, Point, String)>,
     double: bool,
+    tag_drag: Option<(i64, Range, i8)>,
 }
 struct Drag {
     x: f32,
@@ -44,10 +45,12 @@ struct Drag {
 }
 pub struct Timeline<'a> {
     pub tracks: &'a [Track],
+    pub filtered: &'a [Vec<usize>],
     pub visible: &'a [usize],
     pub view: Range,
     pub selection: Option<Range>,
     pub highlight: Option<&'a str>,
+    pub grid_cache: &'a canvas::Cache,
     pub cache: &'a canvas::Cache,
     pub stats: &'a PaintStats,
     pub icons: &'a HashMap<String, AppIcon>,
@@ -63,10 +66,14 @@ impl Timeline<'_> {
         let row = ((point.y - RULER) / ROW) as usize;
         let track = *self.visible.get(row)?;
         let ts = model::pixel_range(self.view, width, point.x, point.x).start;
-        self.tracks[track]
-            .segments
+        self.filtered[track]
             .iter()
-            .rposition(|segment| segment.range.start <= ts && segment.range.end > ts)
+            .rev()
+            .copied()
+            .find(|index| {
+                let segment = &self.tracks[track].segments[*index];
+                segment.range.start <= ts && segment.range.end > ts
+            })
             .map(|index| (track, index))
     }
     fn extended(value: Range, old: Option<Range>) -> Range {
@@ -105,7 +112,7 @@ impl canvas::Program<Message> for Timeline<'_> {
                 let point = inside?;
                 let hit = self.hit(point, bounds.width);
                 let key = hit
-                    .map(|(track, index)| self.tracks[track].segments[index].key.clone())
+                    .map(|(track, index)| self.tracks[track].segments[index].key.to_string())
                     .unwrap_or_default();
                 state.double = state
                     .last_click
@@ -116,6 +123,24 @@ impl canvas::Program<Message> for Timeline<'_> {
                             && *last == key
                     });
                 state.last_click = Some((Instant::now(), point, key));
+                state.tag_drag = hit
+                    .filter(|(track, _)| *track == 0 && !state.shift)
+                    .and_then(|(track, index)| {
+                        let segment = &self.tracks[track].segments[index];
+                        let (id, original_range) = segment.tag_record?;
+                        let x = |ts| {
+                            (ts - self.view.start) as f32 / self.view.duration() as f32
+                                * bounds.width
+                        };
+                        let edge = if (point.x - x(original_range.start)).abs() < 6.0 {
+                            -1
+                        } else if (point.x - x(original_range.end)).abs() < 6.0 {
+                            1
+                        } else {
+                            0
+                        };
+                        Some((id, original_range, edge))
+                    });
                 state.drag = Some(Drag {
                     x: point.x,
                     old: self.selection,
@@ -123,6 +148,12 @@ impl canvas::Program<Message> for Timeline<'_> {
                     moved: false,
                 });
                 if state.double {
+                    if let Some((id, _, _)) = state.tag_drag {
+                        return Some(
+                            canvas::Action::publish(Message::Edit(super::tagging::Edit::Range(id)))
+                                .and_capture(),
+                        );
+                    }
                     if let Some((track, index)) = hit {
                         return Some(
                             canvas::Action::publish(Message::Select(Some(model::continuous_span(
@@ -140,7 +171,14 @@ impl canvas::Program<Message> for Timeline<'_> {
                     let point = point?;
                     if (point.x - drag.x).abs() > 3.0 {
                         drag.moved = true;
-                        let range = model::pixel_range(self.view, bounds.width, drag.x, point.x);
+                        let range = if let Some((_, range, edge)) = state.tag_drag {
+                            let delta = ((point.x - drag.x) / bounds.width
+                                * self.view.duration() as f32)
+                                as i64;
+                            super::tagging::drag_range(range, delta, edge)
+                        } else {
+                            model::pixel_range(self.view, bounds.width, drag.x, point.x)
+                        };
                         return Some(
                             canvas::Action::publish(Message::Select(Some(Self::extended(
                                 range,
@@ -160,6 +198,23 @@ impl canvas::Program<Message> for Timeline<'_> {
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 let drag = state.drag.take()?;
+                if !state.double && drag.moved {
+                    if let (Some((id, range, edge)), Some(point)) = (state.tag_drag.take(), point) {
+                        let delta = ((point.x - drag.x) / bounds.width
+                            * self.view.duration() as f32)
+                            as i64;
+                        return Some(
+                            canvas::Action::publish(Message::Edit(
+                                super::tagging::Edit::Transform(
+                                    id,
+                                    super::tagging::drag_range(range, delta, edge),
+                                ),
+                            ))
+                            .and_capture(),
+                        );
+                    }
+                }
+                state.tag_drag = None;
                 if state.double || drag.moved {
                     return Some(canvas::Action::capture());
                 }
@@ -227,7 +282,7 @@ impl canvas::Program<Message> for Timeline<'_> {
         let x = |ts: i64| {
             (ts - self.view.start) as f64 / self.view.duration().max(1) as f64 * bounds.width as f64
         };
-        let base = self.cache.draw(renderer, bounds.size(), |frame| {
+        let grid = self.grid_cache.draw(renderer, bounds.size(), |frame| {
             let span = self.view.duration();
             let tick = if span > 12 * 3_600_000 {
                 2 * 3_600_000
@@ -258,7 +313,7 @@ impl canvas::Program<Message> for Timeline<'_> {
                 }
                 ts += tick;
             }
-            for (row, track) in self.visible.iter().enumerate() {
+            for (row, _) in self.visible.iter().enumerate() {
                 let top = RULER + row as f32 * ROW;
                 frame.stroke(
                     &Path::line(
@@ -267,8 +322,14 @@ impl canvas::Program<Message> for Timeline<'_> {
                     ),
                     Stroke::default().with_color(line),
                 );
+            }
+        });
+        let base = self.cache.draw(renderer, bounds.size(), |frame| {
+            for (row, track) in self.visible.iter().enumerate() {
+                let top = RULER + row as f32 * ROW;
                 let mut previous = -1;
-                for segment in &self.tracks[*track].segments {
+                for index in &self.filtered[*track] {
+                    let segment = &self.tracks[*track].segments[*index];
                     let Some(range) = model::clip(segment.range, self.view) else {
                         continue;
                     };
@@ -282,7 +343,10 @@ impl canvas::Program<Message> for Timeline<'_> {
                         r: segment.color[0],
                         g: segment.color[1],
                         b: segment.color[2],
-                        a: if self.highlight.is_some_and(|key| key != segment.key) {
+                        a: if self
+                            .highlight
+                            .is_some_and(|key| key != segment.key.as_ref())
+                        {
                             0.25
                         } else {
                             1.0
@@ -298,7 +362,7 @@ impl canvas::Program<Message> for Timeline<'_> {
                             Point::new(left + 4.0, top + 12.0),
                             Size::new(21.0, 21.0),
                         );
-                        match self.icons.get(&segment.key) {
+                        match self.icons.get(segment.key.as_ref()) {
                             Some(AppIcon::Png(handle)) => frame.draw_image(
                                 bounds,
                                 iced::advanced::image::Image::new(handle.clone()),
@@ -366,7 +430,7 @@ impl canvas::Program<Message> for Timeline<'_> {
             started.elapsed().as_micros().min(u64::MAX as u128) as u64,
             Ordering::Relaxed,
         );
-        vec![base, overlay.into_geometry()]
+        vec![grid, base, overlay.into_geometry()]
     }
     fn mouse_interaction(
         &self,
@@ -422,10 +486,15 @@ mod tests {
         let visible = [0, 1, 2, 3];
         let program = Timeline {
             tracks: &tracks,
+            filtered: &tracks
+                .iter()
+                .map(|t| (0..t.segments.len()).collect())
+                .collect::<Vec<_>>(),
             visible: &visible,
             view: Range::new(0, 86_400_000),
             selection: Some(Range::new(8 * 3_600_000, 9 * 3_600_000)),
             highlight: None,
+            grid_cache: &canvas::Cache::new(),
             cache: &cache,
             stats: &stats,
             icons: &HashMap::new(),

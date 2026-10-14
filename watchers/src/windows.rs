@@ -1,10 +1,16 @@
 use super::{IdleWatcher, WatcherError, WindowInfo, WindowWatcher};
-use std::os::windows::io::{FromRawHandle, OwnedHandle};
+use std::{
+    cell::RefCell,
+    os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
+};
 use windows_sys::Win32::{
     Foundation::{GetLastError, SetLastError},
     System::{
         SystemInformation::GetTickCount,
-        Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION},
+        Threading::{
+            GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW,
+            PROCESS_QUERY_LIMITED_INFORMATION,
+        },
     },
     UI::{
         Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO},
@@ -14,11 +20,23 @@ use windows_sys::Win32::{
     },
 };
 
-pub struct WindowsWatcher;
+pub struct WindowsWatcher {
+    process: RefCell<Option<Process>>,
+    executable: RefCell<Vec<u16>>,
+}
+struct Process {
+    pid: u32,
+    handle: OwnedHandle,
+    path: String,
+    name: String,
+}
 
 impl WindowsWatcher {
     pub fn new() -> Result<Self, WatcherError> {
-        Ok(Self)
+        Ok(Self {
+            process: RefCell::new(None),
+            executable: RefCell::new(vec![0; 32_768]),
+        })
     }
 }
 
@@ -51,24 +69,43 @@ impl WindowWatcher for WindowsWatcher {
                 return Err(last_error());
             }
             let title = String::from_utf16_lossy(&title[..written as usize]);
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if handle.is_null() {
-                return Err(last_error());
+            let mut cached = self.process.borrow_mut();
+            let valid = cached.as_ref().is_some_and(|process| {
+                let mut code = 0;
+                process.pid == pid
+                    && GetExitCodeProcess(process.handle.as_raw_handle(), &mut code) != 0
+                    && code == 259
+            });
+            if !valid {
+                // Keep one process handle: the cached identity cannot become another process
+                // when Windows reuses a PID. Never cache a failed lookup.
+                *cached = None;
+                let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                if handle.is_null() {
+                    return Err(last_error());
+                }
+                let owned = OwnedHandle::from_raw_handle(handle);
+                let mut executable = self.executable.borrow_mut();
+                let mut size = executable.len() as u32;
+                if QueryFullProcessImageNameW(handle, 0, executable.as_mut_ptr(), &mut size) == 0 {
+                    return Err(last_error());
+                }
+                let path = String::from_utf16_lossy(&executable[..size as usize]);
+                let name = std::path::Path::new(&path)
+                    .file_stem()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                *cached = Some(Process {
+                    pid,
+                    handle: owned,
+                    path,
+                    name,
+                });
             }
-            let _owned = OwnedHandle::from_raw_handle(handle);
-            let mut executable = vec![0u16; 32_768];
-            let mut size = executable.len() as u32;
-            if QueryFullProcessImageNameW(handle, 0, executable.as_mut_ptr(), &mut size) == 0 {
-                return Err(last_error());
-            }
-            let path = String::from_utf16_lossy(&executable[..size as usize]);
-            let app_name = std::path::Path::new(&path)
-                .file_stem()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            let process = cached.as_ref().expect("successful process lookup");
             Ok(Some(WindowInfo {
-                app: path,
-                app_name,
+                app: process.path.clone(),
+                app_name: process.name.clone(),
                 title,
                 pid: Some(pid),
             }))

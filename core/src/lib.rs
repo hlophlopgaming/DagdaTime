@@ -1,6 +1,6 @@
 //! Platform-independent storage and tracking logic for Draugr Time.
 
-use std::{path::Path, time::Duration};
+use std::{collections::HashMap, path::Path, time::Duration};
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::Value;
@@ -38,6 +38,9 @@ pub enum StorageError {
 /// Local SQLite storage. Opening a database applies pending migrations atomically.
 pub struct Storage {
     connection: Connection,
+    tails: HashMap<String, Event>,
+    last_flush: Option<i64>,
+    metadata_version: u64,
 }
 
 impl Storage {
@@ -61,16 +64,23 @@ impl Storage {
         connection.pragma_update(None, "synchronous", "NORMAL")?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i64 = transaction.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        match version {
-            0 => {
-                transaction.execute_batch(include_str!("../migrations/001_initial.sql"))?;
-                transaction.pragma_update(None, "user_version", 1)?;
-            }
-            1 => {}
-            other => return Err(StorageError::UnsupportedSchema(other)),
+        if version > 2 {
+            return Err(StorageError::UnsupportedSchema(version));
+        }
+        if version == 0 {
+            transaction.execute_batch(include_str!("../migrations/001_initial.sql"))?;
+        }
+        if version < 2 {
+            transaction.execute_batch(include_str!("../migrations/002_tag_archive.sql"))?;
+            transaction.pragma_update(None, "user_version", 2)?;
         }
         transaction.commit()?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            tails: HashMap::new(),
+            last_flush: None,
+            metadata_version: 0,
+        })
     }
 
     /// Record a heartbeat, merging only with the latest event in this bucket.
@@ -93,6 +103,8 @@ impl Storage {
     /// Start a group of writes that is committed atomically with one disk sync.
     /// Dropping the batch without calling [`Batch::commit`] rolls it back.
     pub fn batch(&mut self) -> Result<Batch<'_>, StorageError> {
+        self.flush()?;
+        self.tails.clear();
         Ok(Batch {
             transaction: self
                 .connection
@@ -199,3 +211,190 @@ mod crud_tests;
 
 mod records;
 pub use records::Collection;
+
+impl Storage {
+    /// Stage a sampling tick without opening a SQLite transaction.
+    pub fn buffered_batch(&mut self, now: i64) -> BufferedBatch<'_> {
+        BufferedBatch {
+            tails: self.tails.clone(),
+            storage: self,
+            writes: Vec::new(),
+            now,
+        }
+    }
+
+    /// Persist the live overlay. On failure the overlay remains available for retry.
+    pub fn flush(&mut self) -> Result<(), StorageError> {
+        if self.tails.is_empty() {
+            return Ok(());
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        for event in self.tails.values() {
+            transaction.execute(
+                "UPDATE events SET end_ts=?1 WHERE id=?2 AND end_ts<>?1",
+                params![event.end_ts, event.id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Local CRUD revision and external-connection revision (WAL included).
+    pub fn metadata_version(&self) -> Result<(u64, i64), StorageError> {
+        Ok((
+            self.metadata_version,
+            self.connection
+                .query_row("PRAGMA data_version", [], |r| r.get(0))?,
+        ))
+    }
+}
+
+/// Dropping a staged tick leaves both the overlay and SQLite unchanged.
+pub struct BufferedBatch<'a> {
+    storage: &'a mut Storage,
+    tails: HashMap<String, Event>,
+    writes: Vec<Event>,
+    now: i64,
+}
+impl BufferedBatch<'_> {
+    fn last(&mut self, bucket: &str) -> Result<Option<Event>, StorageError> {
+        if let Some(event) = self.tails.get(bucket) {
+            return Ok(Some(event.clone()));
+        }
+        let event = self.storage.connection.query_row(
+            "SELECT id,bucket,start_ts,end_ts,data FROM events WHERE bucket=?1 ORDER BY start_ts DESC,id DESC LIMIT 1",
+            [bucket], event_from_row).optional()?;
+        if let Some(event) = &event {
+            self.tails.insert(bucket.into(), event.clone());
+        }
+        Ok(event)
+    }
+    pub fn heartbeat(
+        &mut self,
+        bucket: &str,
+        data: &Value,
+        ts: i64,
+        pulsetime: i64,
+    ) -> Result<(), StorageError> {
+        if bucket.is_empty() || ts < 0 || pulsetime <= 0 {
+            return Err(StorageError::InvalidHeartbeat);
+        }
+        if let Some(mut last) = self.last(bucket)? {
+            if ts < last.end_ts {
+                return Err(StorageError::OutOfOrderHeartbeat);
+            }
+            if last.data == *data && ts - last.end_ts < pulsetime {
+                last.end_ts = ts;
+                self.tails.insert(bucket.into(), last);
+                return Ok(());
+            }
+            self.writes.push(last);
+        }
+        self.tails.insert(
+            bucket.into(),
+            Event {
+                id: 0,
+                bucket: bucket.into(),
+                start_ts: ts,
+                end_ts: ts,
+                data: data.clone(),
+            },
+        );
+        Ok(())
+    }
+    pub fn extend_last(&mut self, bucket: &str, ts: i64, max_gap: i64) -> Result<(), StorageError> {
+        if let Some(mut last) = self.last(bucket)? {
+            if ts >= last.end_ts && ts - last.end_ts < max_gap {
+                last.end_ts = ts;
+                self.tails.insert(bucket.into(), last);
+            }
+        }
+        Ok(())
+    }
+    pub fn commit(mut self) -> Result<(), StorageError> {
+        let flush = !self.writes.is_empty()
+            || self.tails.values().any(|e| e.id == 0)
+            || self
+                .storage
+                .last_flush
+                .is_none_or(|ts| self.now.saturating_sub(ts) >= 30_000);
+        if flush {
+            let transaction = self
+                .storage
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            for event in self.writes.iter_mut().chain(self.tails.values_mut()) {
+                if event.id == 0 {
+                    transaction.execute(
+                        "INSERT INTO events(bucket,start_ts,end_ts,data) VALUES(?1,?2,?3,?4)",
+                        params![
+                            event.bucket,
+                            event.start_ts,
+                            event.end_ts,
+                            serde_json::to_string(&event.data)?
+                        ],
+                    )?;
+                    event.id = transaction.last_insert_rowid();
+                } else {
+                    transaction.execute(
+                        "UPDATE events SET end_ts=?1 WHERE id=?2 AND end_ts<>?1",
+                        params![event.end_ts, event.id],
+                    )?;
+                }
+            }
+            transaction.commit()?;
+            self.storage.last_flush = Some(self.now);
+        }
+        self.storage.tails = self.tails;
+        Ok(())
+    }
+}
+
+impl Storage {
+    /// Latest event, including zero-length lifecycle markers and live tails.
+    pub fn last_event(&self, bucket: &str) -> Result<Option<Event>, StorageError> {
+        if let Some(event) = self.tails.get(bucket) {
+            return Ok(Some(event.clone()));
+        }
+        Ok(self.connection.query_row("SELECT id,bucket,start_ts,end_ts,data FROM events WHERE bucket=?1 ORDER BY start_ts DESC,id DESC LIMIT 1", [bucket], event_from_row).optional()?)
+    }
+    /// Append an evidence-backed interval; preserve the per-bucket non-overlap invariant.
+    pub fn record_interval(
+        &mut self,
+        bucket: &str,
+        data: &Value,
+        from: i64,
+        to: i64,
+    ) -> Result<(), StorageError> {
+        if from < 0 || to < from {
+            return Err(StorageError::InvalidRecord(
+                "invalid evidence interval".into(),
+            ));
+        }
+        let batch = self.batch()?;
+        batch.heartbeat(bucket, data, from, 1)?;
+        batch.extend_last(bucket, to, i64::MAX)?;
+        batch.commit()
+    }
+}
+
+impl Storage {
+    pub fn first_event_start(&self, bucket: &str) -> Result<Option<i64>, StorageError> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT start_ts FROM events WHERE bucket=?1 ORDER BY start_ts,id LIMIT 1",
+                [bucket],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+}
+
+#[cfg(test)]
+mod tagging_tests;
+
+mod tagging;
+pub use tagging::TagUndo;

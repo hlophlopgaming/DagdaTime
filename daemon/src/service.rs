@@ -26,6 +26,8 @@ pub fn serve(idle_threshold: u64) -> Result<(), Box<dyn Error>> {
     let shared = Shared::new(storage, token, idle_threshold);
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, paths::PORT))?;
     listener.set_nonblocking(true)?;
+    shared.begin_recording(now_ms())?;
+    let computer = start_computer(&shared);
     let server = spawn_api(shared.clone(), listener);
     let mut tracker = Tracker::new(shared.clone());
     let mut watcher = NativeWatcher::new();
@@ -34,6 +36,10 @@ pub fn serve(idle_threshold: u64) -> Result<(), Box<dyn Error>> {
     loop {
         if shared.control.lock().unwrap().shutdown {
             break;
+        }
+        if let Some(computer) = &computer {
+            use draugr_time_watchers::ComputerWatcher;
+            shared.control.lock().unwrap().status.computer_capabilities = computer.capabilities();
         }
         let start = Instant::now();
         if watcher.is_err() && last_retry.elapsed() >= Duration::from_secs(10) {
@@ -64,20 +70,43 @@ pub fn spawn_api(
 ) -> std::thread::JoinHandle<std::io::Result<()>> {
     let server_shared = shared.clone();
     std::thread::spawn(move || {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
         runtime.block_on(async move {
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();
             let shutdown = server_shared.clone();
             let result = axum::serve(listener,crate::api::router(server_shared.clone())).with_graceful_shutdown(async move {
-                loop {
-                    tokio::select! {
-                        _ = tokio::signal::ctrl_c() => { shutdown.control.lock().unwrap().shutdown = true; break; }
-                        _ = tokio::time::sleep(Duration::from_millis(100)) => { if shutdown.control.lock().unwrap().shutdown { break; } }
-                    }
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => { if let Err(error) = shutdown.shutdown() { eprintln!("Shutdown flush failed: {error}"); } }
+                    _ = shutdown.wait_for_shutdown() => {}
                 }
             }).await;
-            server_shared.control.lock().unwrap().shutdown = true;
+            if let Err(error) = server_shared.shutdown() { eprintln!("Shutdown flush failed: {error}"); }
             result
         })
     })
+}
+
+/// Keep the returned native registration alive for the recording session.
+pub fn start_computer(shared: &Shared) -> Option<draugr_time_watchers::NativeComputerWatcher> {
+    use draugr_time_watchers::ComputerWatcher;
+    let callback_shared = shared.clone();
+    let callback = std::sync::Arc::new(move |event| {
+        if let Err(error) = callback_shared.lifecycle(event) {
+            let mut control = callback_shared.control.lock().unwrap();
+            control.status.error = Some(format!("Computer lifecycle persistence failed: {error}"));
+            control.status.state = "error".into();
+        }
+    });
+    match draugr_time_watchers::NativeComputerWatcher::start(callback) {
+        Ok(watcher) => {
+            shared.control.lock().unwrap().status.computer_capabilities = watcher.capabilities();
+            Some(watcher)
+        }
+        Err(error) => {
+            shared.control.lock().unwrap().status.computer_capabilities=format!("Computer lifecycle unavailable: {error}; sleep/lock/off cannot be inferred from gaps");
+            None
+        }
+    }
 }

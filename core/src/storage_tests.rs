@@ -143,7 +143,7 @@ fn reopening_applies_migrations_once_and_preserves_events() {
         .connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 1);
+    assert_eq!(version, 2);
     for table in ["events", "tags", "tag_ranges", "rules"] {
         reopened
             .connection
@@ -164,15 +164,15 @@ fn newer_schema_is_rejected_without_downgrading() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("future.sqlite");
     let connection = rusqlite::Connection::open(&path).unwrap();
-    connection.pragma_update(None, "user_version", 2).unwrap();
+    connection.pragma_update(None, "user_version", 3).unwrap();
     assert!(matches!(
         Storage::open(&path),
-        Err(StorageError::UnsupportedSchema(2))
+        Err(StorageError::UnsupportedSchema(3))
     ));
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
 }
 
 #[test]
@@ -224,4 +224,219 @@ fn concurrent_writers_merge_into_one_event() {
     assert!(results.iter().all(|event| event.id == results[0].id));
     let storage = Storage::open(&path).unwrap();
     assert_eq!(events(&storage, "window"), vec![results[0].clone()]);
+}
+
+#[test]
+fn buffered_ticks_are_visible_without_database_writes() {
+    let mut storage = Storage::open_in_memory().unwrap();
+    for ts in 0..30 {
+        let mut batch = storage.buffered_batch(ts * 1000);
+        batch
+            .heartbeat(
+                "window",
+                &serde_json::json!({"app":"editor"}),
+                ts * 1000,
+                3000,
+            )
+            .unwrap();
+        batch.commit().unwrap();
+        if ts > 0 {
+            assert_eq!(
+                storage.events(Some("window"), 0, 60_000).unwrap()[0].end_ts,
+                ts * 1000
+            );
+        }
+    }
+    assert_eq!(
+        storage
+            .connection
+            .query_row("SELECT end_ts FROM events", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    let mut batch = storage.buffered_batch(30_000);
+    batch
+        .heartbeat("window", &serde_json::json!({"app":"editor"}), 30_000, 3000)
+        .unwrap();
+    batch.commit().unwrap();
+    assert_eq!(
+        storage
+            .connection
+            .query_row("SELECT end_ts FROM events", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        30_000
+    );
+}
+
+#[test]
+fn buffered_transition_flushes_all_buckets_and_drop_rolls_back() {
+    let mut storage = Storage::open_in_memory().unwrap();
+    for ts in [1000, 2000] {
+        let mut batch = storage.buffered_batch(ts);
+        batch
+            .heartbeat("window", &serde_json::json!("a"), ts, 3000)
+            .unwrap();
+        batch
+            .heartbeat("afk", &serde_json::json!("active"), ts, 3000)
+            .unwrap();
+        batch.commit().unwrap();
+    }
+    {
+        let mut batch = storage.buffered_batch(3000);
+        batch
+            .heartbeat("window", &serde_json::json!("discard"), 3000, 3000)
+            .unwrap();
+    }
+    let mut batch = storage.buffered_batch(3000);
+    batch.extend_last("window", 3000, 3000).unwrap();
+    batch
+        .heartbeat("window", &serde_json::json!("b"), 3000, 3000)
+        .unwrap();
+    batch.commit().unwrap();
+    let persisted: i64 = storage
+        .connection
+        .query_row("SELECT end_ts FROM events WHERE bucket='afk'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(persisted, 2000);
+    assert_eq!(
+        storage.events(Some("window"), 0, 5000).unwrap()[0].end_ts,
+        3000
+    );
+    assert_eq!(
+        storage
+            .connection
+            .query_row("SELECT count(*) FROM events", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+}
+
+#[test]
+fn buffered_wal_is_at_least_twenty_times_smaller_for_stable_tracking() {
+    fn simulate(buffered: bool) -> u64 {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("activity.sqlite");
+        let mut storage = Storage::open(&path).unwrap();
+        storage
+            .connection
+            .execute_batch("PRAGMA wal_autocheckpoint=0; PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        for second in 0..=600 {
+            let now = second * 1000;
+            let data = serde_json::json!({"app":"editor","title":"Document"});
+            if buffered {
+                let mut batch = storage.buffered_batch(now);
+                batch.extend_last("window", now, 3000).unwrap();
+                batch.heartbeat("window", &data, now, 3000).unwrap();
+                batch
+                    .heartbeat("afk", &serde_json::json!({"status":"active"}), now, 3000)
+                    .unwrap();
+                batch.commit().unwrap();
+            } else {
+                let batch = storage.batch().unwrap();
+                batch.extend_last("window", now, 3000).unwrap();
+                batch.heartbeat("window", &data, now, 3000).unwrap();
+                batch
+                    .heartbeat("afk", &serde_json::json!({"status":"active"}), now, 3000)
+                    .unwrap();
+                batch.commit().unwrap();
+            }
+        }
+        std::fs::metadata(path.with_file_name("activity.sqlite-wal"))
+            .unwrap()
+            .len()
+    }
+    let before = simulate(false);
+    let after = simulate(true);
+    eprintln!(
+        "600 s stable tracking WAL: {before} -> {after} bytes ({:.1}x)",
+        before as f64 / after as f64
+    );
+    assert!(before > after * 20);
+}
+
+#[test]
+fn buffered_overlay_crosses_query_boundary_and_flush_survives_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("activity.sqlite");
+    let mut storage = Storage::open(&path).unwrap();
+    for now in [1000, 2000, 3000] {
+        let mut batch = storage.buffered_batch(now);
+        batch
+            .heartbeat("window", &serde_json::json!("a"), now, 3000)
+            .unwrap();
+        batch.commit().unwrap();
+    }
+    assert_eq!(storage.events(None, 2500, 4000).unwrap()[0].end_ts, 3000);
+    storage.flush().unwrap();
+    drop(storage);
+    let storage = Storage::open(path).unwrap();
+    assert_eq!(storage.events(None, 2500, 4000).unwrap()[0].end_ts, 3000);
+}
+
+#[test]
+fn failed_buffered_flush_keeps_the_previous_overlay_for_retry() {
+    let mut storage = Storage::open_in_memory().unwrap();
+    for now in [1000, 2000] {
+        let mut batch = storage.buffered_batch(now);
+        batch
+            .heartbeat("window", &serde_json::json!("a"), now, 3000)
+            .unwrap();
+        batch.commit().unwrap();
+    }
+    storage.connection.execute_batch("CREATE TRIGGER deny_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT, 'disk error'); END;").unwrap();
+    assert!(storage.flush().is_err());
+    assert_eq!(storage.events(None, 0, 5000).unwrap()[0].end_ts, 2000);
+    storage
+        .connection
+        .execute_batch("DROP TRIGGER deny_update")
+        .unwrap();
+    storage.flush().unwrap();
+    assert_eq!(
+        storage
+            .connection
+            .query_row("SELECT end_ts FROM events", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        2000
+    );
+}
+
+#[test]
+fn evidence_intervals_reject_overlap_and_keep_zero_length_markers() {
+    let mut storage = Storage::open_in_memory().unwrap();
+    storage
+        .record_interval(
+            "computer",
+            &serde_json::json!({"machine":"asleep","source":"mock OS"}),
+            1000,
+            2000,
+        )
+        .unwrap();
+    assert!(storage
+        .record_interval(
+            "computer",
+            &serde_json::json!({"machine":"off"}),
+            1500,
+            3000
+        )
+        .is_err());
+    assert!(storage
+        .record_interval("computer", &serde_json::json!({}), -1, 0)
+        .is_err());
+    storage
+        .record_interval(
+            "computer",
+            &serde_json::json!({"recording":"stopped"}),
+            2000,
+            2000,
+        )
+        .unwrap();
+    assert_eq!(
+        storage.last_event("computer").unwrap().unwrap().data["recording"],
+        "stopped"
+    );
+    assert_eq!(storage.events(Some("computer"), 0, 3000).unwrap().len(), 2);
+    assert_eq!(storage.first_event_start("computer").unwrap(), Some(1000));
 }

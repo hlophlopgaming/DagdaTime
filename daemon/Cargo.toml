@@ -19,5 +19,6 @@ uuid = { version = "1", features = ["v4"] }
 dirs = "7"
 
 [dev-dependencies]
+rusqlite = "0.37"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

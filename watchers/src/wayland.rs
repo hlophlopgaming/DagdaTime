@@ -64,6 +64,7 @@ impl IdleWatcher for LinuxWatcher {
 struct BridgeSample {
     window: Option<WindowInfo>,
     idle_ms: Option<u64>,
+    idle_received: Instant,
     received: Instant,
 }
 #[derive(Clone, Default)]
@@ -73,7 +74,17 @@ impl BridgeState {
         self.set(app, title, pid, Some(idle_ms));
     }
     fn set(&self, app: &str, title: &str, pid: u32, idle_ms: Option<u64>) {
-        *self.0.lock().unwrap() = Some(BridgeSample {
+        let mut guard = self.0.lock().unwrap();
+        let idle_received = if idle_ms.is_some() {
+            Instant::now()
+        } else {
+            guard
+                .as_ref()
+                .map(|s| s.idle_received)
+                .unwrap_or_else(Instant::now)
+        };
+        let idle_ms = idle_ms.or_else(|| guard.as_ref().and_then(|s| s.idle_ms));
+        *guard = Some(BridgeSample {
             window: if app.is_empty() && title.is_empty() {
                 None
             } else {
@@ -85,8 +96,21 @@ impl BridgeState {
                 })
             },
             idle_ms,
+            idle_received,
             received: Instant::now(),
         });
+    }
+    pub(crate) fn heartbeat(&self, idle_ms: Option<u64>) -> bool {
+        let mut guard = self.0.lock().unwrap();
+        let Some(sample) = guard.as_mut() else {
+            return false;
+        };
+        sample.received = Instant::now();
+        if let Some(idle) = idle_ms {
+            sample.idle_ms = Some(idle);
+            sample.idle_received = sample.received;
+        }
+        true
     }
     pub(crate) fn window(&self) -> Result<Option<WindowInfo>, WatcherError> {
         let guard = self.0.lock().unwrap();
@@ -103,7 +127,7 @@ impl BridgeState {
             ))?;
         sample
             .idle_ms
-            .map(|idle| (idle + sample.received.elapsed().as_millis() as u64) / 1_000)
+            .map(|idle| (idle + sample.idle_received.elapsed().as_millis() as u64) / 1_000)
             .ok_or(WatcherError::Unsupported("no compositor idle sample"))
     }
 }
@@ -133,6 +157,21 @@ impl BridgeService {
         }
         self.state.update(source, app, title, pid, idle);
         Ok(())
+    }
+    fn heartbeat(&self, source: &str, idle_ms: &str) -> zbus::fdo::Result<bool> {
+        self.validate(source, "", "")?;
+        let idle = if idle_ms.is_empty() && source == "kde" {
+            None
+        } else {
+            let value = idle_ms
+                .parse::<u64>()
+                .map_err(|_| zbus::fdo::Error::InvalidArgs("invalid idle milliseconds".into()))?;
+            if value > 31_536_000_000 {
+                return Err(zbus::fdo::Error::InvalidArgs("idle value too large".into()));
+            }
+            Some(value)
+        };
+        Ok(self.state.heartbeat(idle))
     }
     fn update_window(
         &self,

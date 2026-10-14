@@ -17,7 +17,7 @@ Decision: build our own project, but keep the **event format compatible** with A
 ## 1. Scope
 
 ### MVP
-1. Automatic tracking: active application, window title, computer state (active / idle / off).
+1. Automatic tracking: active application, window title, computer state (active / AFK / asleep / off). Distinguish confirmed OS states from tracking failures and periods without recording; investigate reliable platform evidence in M4.5.
 2. **Desktop app with a ManicTime-style Day view**: timeline with tracks (Tags, Computer usage, Applications, Documents/URLs), range selection and a summary panel (see §5).
 3. **Tags**: select a range on the timeline → assign a project/task. This is the core ManicTime feature.
 4. Auto-tagging rules (regex on app / title / URL).
@@ -156,7 +156,7 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 
 **1. Day view (main screen, ManicTime's "Day view")**
 - Toolbar: previous/next day, Today, date picker, search, tracking status pill (Tracking / Paused / Away / Error) with a dropdown: Pause 15 min / 1 h / until resumed.
-- Timeline tracks, top to bottom: **Tags**, **Computer usage** (active / away / off), **Applications** (stable color per app), **Documents** (window titles, URLs from M9). Track order and visibility configurable.
+- Timeline tracks, top to bottom: **Tags**, **Computer usage** (active / AFK / asleep / off, plus explicit recording gaps and diagnostic `Unobserved`), **Applications** (stable color per app), **Documents** (window titles, URLs from M9). Track order and visibility configurable.
 - Zoom from whole day down to minutes; scroll horizontally; hover shows app, title, start–end, duration.
 - Click a block to select it; drag to select any range; Shift-click to extend. Double-click an app block selects its continuous span.
 - **Summary panel** under the timeline with tabs *Tags / Applications / Documents*: duration and share for the current selection, or the whole day if nothing is selected. Clicking a row highlights its blocks on the timeline.
@@ -255,9 +255,19 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 - Day totals; keyboard navigation between days.
 - ✅ Renders fixture data with 5 000+ events smoothly; selection math (durations, shares) covered by tests; summary updates on selection change.
 
+### M4.5 — Computer state evidence and diagnostic gaps
+- First investigate which local OS signals and retained system history can establish sleep/resume, shutdown/boot, session lock/unlock and user idle time on Windows, macOS and Linux (X11 / Wayland). Document sources, permissions, retention limits, restart recovery and cases that cannot be determined reliably. No network access is required.
+- Define separate dimensions: computer/session state (awake, asleep, off, locked where detectable), user activity (active / AFK), and tracking health (recording, paused, stopped, unavailable). A focused application is observed context, not proof that the user is active; a locked session is not proof of shutdown.
+- Show active use and its observed application, AFK, and evidence-backed sleep/off intervals distinctly on the timeline. Keep `Unobserved` as a diagnostic state when collection is expected to work but cannot observe activity (backend failure, missing permissions, unavailable window details). Preserve an explicit reason and the affected backend; a missing window must not discard a valid idle/computer-state observation.
+- Represent manual pause, tracker not running and gaps with insufficient evidence separately. Never infer AFK, sleep or shutdown merely from a heartbeat gap or application exit. After a crash or power loss, reconstruct only what reliable local evidence supports; retain the rest as an unknown recording gap, rather than mislabelling it as a watcher failure.
+- After the investigation, record the chosen evidence and interval-boundary rules in `docs/decisions.md`, then implement supported states behind platform traits with mocks. Preserve Unix UTC milliseconds, use new migrations if persistence changes, and define how power/session events flush the buffered live tails.
+- ✅ Research deliverable: a per-platform capability table with source references, confidence/limitations, required permissions and manual verification steps. Unsupported distinctions remain explicit.
+- ✅ Tests first: MockWatcher / mock lifecycle scenarios cover active application → AFK → return, focus unavailable with valid idle samples, lock/unlock, suspend/resume, evidenced shutdown/boot, pause/resume, tracker restart/crash and an unexplained recording gap. Verify interval boundaries, day totals, absence of invented work across sleep/off, and diagnostic `Unobserved` reasons independently of the known computer state.
+- ✅ UI/API retain the state and its evidence/reason; real supported-platform checks verify sleep, wake, reboot and backend failure. Run this milestone before M5 so the away prompt can distinguish AFK from sleep/off and collection gaps.
+
 ### M5 — Tags (core feature)
 - Tagging popup from §5.2: autocomplete, comma-separated hierarchy, note; replace/split on overlap; edit, resize, move, delete on the Tags track; undo.
-- **"While you were away" prompt** from §5.3.
+- **"While you were away" prompt** from §5.3, using M4.5 state classification: AFK is distinct from sleep/off, manual pause and collection gaps.
 - Tags manager screen (§5.6).
 - Tray "tag the last N minutes" enabled.
 - ✅ Tested: total time per tag per day is correct, including overlaps, splits and day boundaries; away prompt creates the right tag range.

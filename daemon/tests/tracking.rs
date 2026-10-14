@@ -134,3 +134,49 @@ fn sleep_gap_is_not_counted_as_work_and_timed_pause_expires() {
     assert_eq!(events[0].end_ts, 1_000);
     assert_eq!(events[1].start_ts, 60_000);
 }
+
+#[test]
+fn pause_and_shutdown_persist_the_overlay_and_stop_further_sampling() {
+    let path = std::env::temp_dir().join(format!("draugr-flush-{}.sqlite", uuid::Uuid::new_v4()));
+    let shared = Shared::new(Storage::open(&path).unwrap(), "test".into(), 300);
+    let mut tracker = Tracker::new(shared.clone());
+    let watcher = MockWatcher::new(Some(window("editor")), 0);
+    for now in [1000, 2000] {
+        tracker.poll_once(now, &watcher, &watcher).unwrap();
+    }
+    shared.pause(2000, None).unwrap();
+    assert_eq!(
+        Storage::open(&path)
+            .unwrap()
+            .events(Some("window"), 0, 10_000)
+            .unwrap()[0]
+            .end_ts,
+        2000
+    );
+    tracker.poll_once(2000, &watcher, &watcher).unwrap();
+    shared.resume();
+    for now in [3000, 4000] {
+        tracker.poll_once(now, &watcher, &watcher).unwrap();
+    }
+    shared.shutdown().unwrap();
+    tracker.poll_once(5000, &watcher, &watcher).unwrap();
+    let storage = Storage::open(&path).unwrap();
+    let events = storage.events(Some("window"), 0, 10_000).unwrap();
+    assert_eq!(events.last().unwrap().end_ts, 4000);
+    drop(storage);
+    drop(tracker);
+    drop(shared);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn shutdown_notification_handles_a_signal_before_the_waiter_starts() {
+    let shared = Shared::new(Storage::open_in_memory().unwrap(), "test".into(), 300);
+    shared.shutdown().unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        shared.wait_for_shutdown(),
+    )
+    .await
+    .unwrap();
+}

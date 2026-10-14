@@ -87,9 +87,9 @@ async fn resume(State(shared): State<Shared>) -> Json<Value> {
     shared.resume();
     Json(json!(shared.status()))
 }
-async fn shutdown(State(shared): State<Shared>) -> Json<Value> {
-    shared.control.lock().unwrap().shutdown = true;
-    Json(json!({"ok":true}))
+async fn shutdown(State(shared): State<Shared>) -> ApiResult {
+    shared.shutdown().map_err(storage_error)?;
+    Ok(Json(json!({"ok":true})))
 }
 async fn list(State(shared): State<Shared>, Path(name): Path<String>) -> ApiResult {
     Ok(Json(json!(shared

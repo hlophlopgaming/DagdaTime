@@ -12,19 +12,49 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+pub struct LoadCursor {
+    pub starts: HashMap<String, i64>,
+    pub metadata_version: Option<(u64, i64)>,
+}
+#[derive(Clone, Debug, Default)]
 pub struct Snapshot {
+    pub completed_afk: Option<Range>,
+    pub tag_metadata: Option<Box<TagMetadata>>,
     pub tracks: Vec<Track>,
+    pub cursor: LoadCursor,
+    pub replace_from: HashMap<String, i64>,
+    pub tags_changed: bool,
     pub icons: HashMap<String, Option<String>>,
 }
+#[derive(Clone, Debug)]
+pub struct TagMetadata {
+    pub tags: Vec<Value>,
+    pub ranges: Vec<Value>,
+}
 pub struct Runtime {
+    #[cfg(target_os = "macos")]
+    _computer: Option<draugr_time_watchers::NativeComputerWatcher>,
     pub shared: Shared,
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     sampler: Sampler,
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     sender: mpsc::SyncSender<(i64, MockWatcher)>,
 }
 impl Runtime {
+    #[cfg(test)]
+    pub fn for_test(shared: Shared) -> Self {
+        Self {
+            shared,
+            #[cfg(target_os = "macos")]
+            _computer: None,
+            #[cfg(target_os = "macos")]
+            sampler: Sampler::new(true),
+            #[cfg(target_os = "macos")]
+            sender: mpsc::sync_channel(1).0,
+        }
+    }
+
     pub fn start(fixture: bool) -> Result<Self, String> {
         let directory = paths::data_dir().map_err(|e| e.to_string())?;
         let listener = std::net::TcpListener::bind((
@@ -43,19 +73,30 @@ impl Runtime {
             token,
             300,
         );
+        shared
+            .begin_recording(now_ms())
+            .map_err(|e| e.to_string())?;
+        #[cfg(target_os = "macos")]
+        let computer = if fixture {
+            None
+        } else {
+            draugr_time_daemon::service::start_computer(&shared)
+        };
         draugr_time_daemon::service::spawn_api(shared.clone(), listener);
         let (sender, _) = spawn_worker(shared.clone(), fixture);
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         drop(sender);
         Ok(Self {
+            #[cfg(target_os = "macos")]
+            _computer: computer,
             shared,
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             sampler: Sampler::new(fixture),
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             sender,
         })
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     pub fn pulse(&mut self) {
         let sample = self.sampler.sample(&self.shared);
         let _ = self.sender.try_send((now_ms(), sample));
@@ -69,33 +110,96 @@ impl Runtime {
     pub fn resume(&self) {
         self.shared.resume();
     }
-    pub fn load(shared: Shared, range: Range) -> Result<Snapshot, String> {
+    pub fn load(shared: Shared, range: Range, mut cursor: LoadCursor) -> Result<Snapshot, String> {
         let storage = shared.storage.lock().unwrap();
-        let events = storage
-            .events(None, range.start, range.end)
+        let completed_afk = storage
+            .completed_afk()
+            .map_err(|e| e.to_string())?
+            .map(|(start, end)| Range::new(start, end));
+        let version = storage.metadata_version().map_err(|e| e.to_string())?;
+        let tags_changed = cursor.metadata_version != Some(version);
+        // An external writer may have edited history rather than appended a heartbeat.
+        if cursor
+            .metadata_version
+            .is_some_and(|old| old.1 != version.1)
+        {
+            cursor.starts.clear();
+        }
+        let mut events = Vec::new();
+        let mut replace_from = HashMap::new();
+        let computer_start = storage
+            .first_event_start("computer")
             .map_err(|e| e.to_string())?;
-        let tags = storage.list(Collection::Tags).map_err(|e| e.to_string())?;
-        let ranges = storage
-            .list(Collection::TagRanges)
-            .map_err(|e| e.to_string())?;
-        let tracks = model::tracks(&events, &tags, &ranges, range);
+        for bucket in ["afk", "window", "web", "computer"] {
+            let from = cursor.starts.get(bucket).copied().unwrap_or(range.start);
+            replace_from.insert(bucket.into(), from.max(range.start));
+            let to = if bucket == "afk" {
+                computer_start.unwrap_or(range.end).min(range.end)
+            } else {
+                range.end
+            };
+            let mut tail = if to <= from.max(range.start) {
+                Vec::new()
+            } else {
+                storage
+                    .events(Some(bucket), from.max(range.start), to)
+                    .map_err(|e| e.to_string())?
+            };
+            if bucket == "afk" {
+                for event in &mut tail {
+                    event.end_ts = event.end_ts.min(to);
+                }
+            }
+            tail.retain(|event| event.start_ts >= from || from == range.start);
+            if let Some(last) = tail.last() {
+                cursor.starts.insert(bucket.into(), last.start_ts);
+            }
+            events.extend(tail);
+        }
+        let (tags, ranges) = if tags_changed {
+            (
+                storage.list(Collection::Tags).map_err(|e| e.to_string())?,
+                storage
+                    .list(Collection::TagRanges)
+                    .map_err(|e| e.to_string())?,
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
         drop(storage);
+        cursor.metadata_version = Some(version);
+        let mut tracks = model::tracks(&events, &tags, &ranges, range);
+        for track in &mut tracks {
+            track.segments.retain(|s| s.bucket != "derived");
+        }
         let apps = tracks[2]
             .segments
             .iter()
-            .filter_map(|segment| Some((segment.app.clone()?, segment.app_name.clone()?)))
+            .filter_map(|segment| {
+                Some((
+                    segment.app.as_ref()?.to_string(),
+                    segment.app_name.as_ref()?.to_string(),
+                ))
+            })
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
         Ok(Snapshot {
+            completed_afk,
+            tag_metadata: tags_changed.then(|| Box::new(TagMetadata { tags, ranges })),
             tracks,
+            cursor,
+            replace_from,
+            tags_changed,
             icons: icons::application_icons(apps),
         })
     }
 }
 impl Drop for Runtime {
     fn drop(&mut self) {
-        self.shared.control.lock().unwrap().shutdown = true;
+        if let Err(error) = self.shared.shutdown() {
+            eprintln!("Shutdown flush failed: {error}");
+        }
     }
 }
 
@@ -120,11 +224,13 @@ impl Sampler {
         let now = now_ms();
         let paused = {
             let control = shared.control.lock().unwrap();
-            control.paused
-                && !control
-                    .status
-                    .paused_until
-                    .is_some_and(|until| until <= now)
+            control.status.computer.machine != "awake"
+                || control.status.computer.locked == Some(true)
+                || control.paused
+                    && !control
+                        .status
+                        .paused_until
+                        .is_some_and(|until| until <= now)
         };
         if paused {
             MockWatcher {
@@ -171,20 +277,29 @@ fn spawn_worker(
 ) {
     let (sender, receiver) = mpsc::sync_channel(1);
     let handle = std::thread::spawn(move || {
+        #[cfg(not(target_os = "macos"))]
+        let computer = if fixture {
+            None
+        } else {
+            draugr_time_daemon::service::start_computer(&shared)
+        };
         let mut tracker = Tracker::new(shared.clone());
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         let mut sampler = Sampler::new(fixture);
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         let _receiver = receiver;
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         let _ = fixture;
+        let mut last_status = Value::Null;
         while !shared.control.lock().unwrap().shutdown {
-            #[cfg(target_os = "linux")]
+            #[cfg(not(target_os = "macos"))]
+            let tick_started = Instant::now();
+            #[cfg(not(target_os = "macos"))]
             let (now, sample) = {
                 let sample = sampler.sample(&shared);
                 (now_ms(), sample)
             };
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
             let (now, sample) = match receiver.recv_timeout(Duration::from_millis(200)) {
                 Ok(sample) => sample,
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
@@ -195,8 +310,24 @@ fn spawn_worker(
                 control.status.state = "error".into();
                 control.status.error = Some(error.to_string());
             }
-            #[cfg(target_os = "linux")]
-            std::thread::sleep(Duration::from_secs(1));
+            #[cfg(not(target_os = "macos"))]
+            if let Some(computer) = &computer {
+                use draugr_time_watchers::ComputerWatcher;
+                shared.control.lock().unwrap().status.computer_capabilities =
+                    computer.capabilities();
+            }
+            let status = serde_json::to_value(shared.status()).unwrap_or(Value::Null);
+            let mut comparison = status.clone();
+            if let Some(object) = comparison.as_object_mut() {
+                object.remove("updated_ts");
+                object.remove("idle_seconds");
+            }
+            if comparison != last_status {
+                super::tray::push_status(status);
+                last_status = comparison;
+            }
+            #[cfg(not(target_os = "macos"))]
+            std::thread::sleep(Duration::from_secs(1).saturating_sub(tick_started.elapsed()));
         }
     });
     (sender, handle)
@@ -212,7 +343,7 @@ mod tests {
         let (sender, worker) = spawn_worker(shared.clone(), true);
         drop(sender);
         std::thread::sleep(Duration::from_millis(2200));
-        shared.control.lock().unwrap().shutdown = true;
+        shared.shutdown().unwrap();
         worker.join().unwrap();
         let events = shared
             .storage
@@ -235,5 +366,45 @@ mod tests {
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].start_ts, events[0].start_ts);
         assert_eq!(windows[0].end_ts, events[0].end_ts);
+    }
+}
+
+#[cfg(test)]
+mod incremental_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn incremental_load_replaces_tail_and_refreshes_tag_revision() {
+        let shared = Shared::new(Storage::open_in_memory().unwrap(), "test".into(), 300);
+        let day = Range::new(0, 100_000);
+        {
+            let mut storage = shared.storage.lock().unwrap();
+            for (ts, app) in [(1000, "a"), (2000, "a"), (3000, "b"), (4000, "b")] {
+                storage
+                    .heartbeat("window", &json!({"app":app,"title":app}), ts, 3000)
+                    .unwrap();
+            }
+        }
+        let first = Runtime::load(shared.clone(), day, LoadCursor::default()).unwrap();
+        assert_eq!(first.tracks[2].segments.len(), 2);
+        shared
+            .storage
+            .lock()
+            .unwrap()
+            .heartbeat("window", &json!({"app":"b","title":"b"}), 5000, 3000)
+            .unwrap();
+        let next = Runtime::load(shared.clone(), day, first.cursor).unwrap();
+        assert_eq!(next.tracks[2].segments.len(), 1, "load only the last event");
+        assert_eq!(next.tracks[2].segments[0].range.end, 5000);
+        assert!(!next.tags_changed);
+        shared
+            .storage
+            .lock()
+            .unwrap()
+            .put(Collection::Tags, None, json!({"name":"Project"}))
+            .unwrap();
+        let next = Runtime::load(shared, day, next.cursor).unwrap();
+        assert!(next.tags_changed);
     }
 }

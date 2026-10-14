@@ -33,3 +33,19 @@ fn bridge_requires_fresh_samples_and_preserves_null_window() {
     assert!(state.window().unwrap().is_none());
     assert_eq!(state.idle().unwrap(), 12);
 }
+
+#[test]
+fn bridge_heartbeat_keeps_window_and_updates_only_idle() {
+    let state = BridgeState::default();
+    assert!(!state.heartbeat(Some(0)));
+    assert!(
+        state.window().is_err(),
+        "a heartbeat cannot invent a focused window"
+    );
+    state.update("gnome", "editor", "Document", 42, 12_000);
+    assert!(state.heartbeat(Some(0)));
+    assert_eq!(state.window().unwrap().unwrap().title, "Document");
+    assert_eq!(state.idle().unwrap(), 0);
+    assert!(state.heartbeat(None));
+    assert_eq!(state.window().unwrap().unwrap().pid, Some(42));
+}

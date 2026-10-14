@@ -1,7 +1,10 @@
 use chrono::{Datelike, Local, NaiveDate, TimeZone};
 use draugr_time_core::Event;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Range {
@@ -18,21 +21,25 @@ impl Range {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Segment {
+    pub tag_record: Option<(i64, Range)>,
     pub range: Range,
-    pub key: String,
-    pub label: String,
-    pub detail: String,
-    pub app: Option<String>,
-    pub app_name: Option<String>,
+    pub bucket: &'static str,
+    pub key: Arc<str>,
+    pub label: Arc<str>,
+    pub detail: Arc<str>,
+    pub app: Option<Arc<str>>,
+    pub app_name: Option<Arc<str>>,
     pub color: [f32; 3],
 }
 impl Segment {
     pub fn new(range: Range, key: &str, label: &str) -> Self {
         Self {
+            tag_record: None,
             range,
+            bucket: "tags",
             key: key.into(),
             label: label.into(),
-            detail: String::new(),
+            detail: "".into(),
             app: None,
             app_name: None,
             color: color(key),
@@ -46,13 +53,13 @@ pub struct Track {
 }
 #[derive(Clone, Debug)]
 pub struct Summary {
-    pub key: String,
-    pub label: String,
+    pub key: Arc<str>,
+    pub label: Arc<str>,
     pub duration: i64,
     pub share: f64,
     pub color: [f32; 3],
-    pub app: Option<String>,
-    pub app_name: Option<String>,
+    pub app: Option<Arc<str>>,
+    pub app_name: Option<Arc<str>>,
 }
 
 pub fn clip(value: Range, bounds: Range) -> Option<Range> {
@@ -107,7 +114,14 @@ pub fn uncovered(base: &[Range], covers: &[Range], bounds: Range) -> Vec<Range> 
     }
     result
 }
+#[cfg(test)]
 pub fn summarize(segments: &[Segment], range: Range) -> Vec<Summary> {
+    summarize_iter(segments.iter(), range)
+}
+pub fn summarize_iter<'a>(
+    segments: impl IntoIterator<Item = &'a Segment>,
+    range: Range,
+) -> Vec<Summary> {
     let mut groups: HashMap<&str, Vec<&Segment>> = HashMap::new();
     for segment in segments {
         if clip(segment.range, range).is_some() {
@@ -137,6 +151,31 @@ pub fn summarize(segments: &[Segment], range: Range) -> Vec<Summary> {
     });
     result
 }
+#[cfg(test)]
+pub fn application_documents(
+    documents: &[Segment],
+    application: &str,
+    range: Range,
+) -> Vec<Summary> {
+    application_documents_iter(documents.iter(), application, range)
+}
+pub fn application_documents_iter<'a>(
+    documents: impl IntoIterator<Item = &'a Segment>,
+    application: &str,
+    range: Range,
+) -> Vec<Summary> {
+    summarize_iter(
+        documents.into_iter().filter(|segment| {
+            segment
+                .app
+                .as_deref()
+                .zip(segment.app_name.as_deref())
+                .is_some_and(|(app, name)| application_identity(app, name) == application)
+        }),
+        range,
+    )
+}
+
 pub fn pixel_range(view: Range, width: f32, a: f32, b: f32) -> Range {
     let time = |x: f32| {
         view.start
@@ -242,6 +281,7 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
             value["start_ts"].as_i64().unwrap_or(0),
             value["end_ts"].as_i64().unwrap_or(0),
         );
+        let original_range = range;
         let Some(range) = clip(range, day) else {
             continue;
         };
@@ -250,6 +290,8 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
             .and_then(|t| t["name"].as_str())
             .unwrap_or("Unknown tag");
         let mut segment = Segment::new(range, &tag_id.to_string(), name);
+        segment.tag_record = value["id"].as_i64().map(|id| (id, original_range));
+        segment.label = tag_path(tags, tag_id).into();
         segment.detail = value["note"].as_str().unwrap_or_default().into();
         if let Some(hex) = tag
             .and_then(|tag| tag["color"].as_str())
@@ -266,11 +308,76 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
         }
         result[0].segments.push(segment);
     }
+    let computer_start = events
+        .iter()
+        .filter(|e| e.bucket == "computer")
+        .map(|e| e.start_ts)
+        .min();
     for event in events {
-        let Some(range) = clip(Range::new(event.start_ts, event.end_ts), day) else {
+        let bounds = if event.bucket == "afk" {
+            Range::new(day.start, computer_start.unwrap_or(day.end).min(day.end))
+        } else {
+            day
+        };
+        let Some(range) = clip(Range::new(event.start_ts, event.end_ts), bounds) else {
             continue;
         };
         match event.bucket.as_str() {
+            "computer" => {
+                let machine = event.data["machine"].as_str().unwrap_or("unknown");
+                let activity = event.data["activity"].as_str().unwrap_or("unknown");
+                let recording = event.data["recording"].as_str().unwrap_or("unknown");
+                let (key, label, color) = if machine == "asleep" {
+                    ("asleep", "Sleep", [0.43, 0.49, 0.65])
+                } else if machine == "off" {
+                    ("off", "Off (OS evidence)", [0.36, 0.40, 0.45])
+                } else if event.data["locked"] == true {
+                    ("locked", "Locked", [0.60, 0.52, 0.68])
+                } else if recording == "paused" {
+                    ("paused", "Paused", [0.72, 0.64, 0.43])
+                } else if recording == "stopped" {
+                    ("stopped", "Tracker stopped", [0.49, 0.53, 0.58])
+                } else if recording == "unknown" {
+                    ("unknown", "No recording", [0.49, 0.53, 0.58])
+                } else if activity == "active" {
+                    ("active", "Active", [0.37, 0.65, 0.58])
+                } else if activity == "away" {
+                    ("away", "AFK", [0.83, 0.69, 0.40])
+                } else if recording == "unobserved" {
+                    ("unobserved", "Unobserved", [0.75, 0.43, 0.40])
+                } else {
+                    ("pending", "Awaiting sample", [0.49, 0.53, 0.58])
+                };
+                let mut segment = Segment::new(range, key, label);
+                segment.bucket = "computer";
+                segment.color = color;
+                segment.detail = format!(
+                    "{}{}{}",
+                    event.data["reason"].as_str().unwrap_or(""),
+                    if event.data["reason"].is_string() {
+                        " · "
+                    } else {
+                        ""
+                    },
+                    event.data["source"]
+                        .as_str()
+                        .unwrap_or("recorded computer state")
+                )
+                .into();
+                result[1].segments.push(segment.clone());
+                if recording == "unobserved"
+                    && event.data["window_available"] == false
+                    && activity != "away"
+                    && machine == "awake"
+                    && event.data["locked"] != true
+                {
+                    segment.key = "unobserved".into();
+                    segment.label = "Unobserved".into();
+                    segment.color = [0.75, 0.43, 0.40];
+                    result[2].segments.push(segment.clone());
+                    result[3].segments.push(segment);
+                }
+            }
             "afk" => {
                 let state = event.data["status"].as_str().unwrap_or("unknown");
                 let mut segment = Segment::new(
@@ -287,6 +394,7 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
                     "away" => [0.83, 0.69, 0.40],
                     _ => [0.49, 0.53, 0.58],
                 };
+                segment.bucket = "afk";
                 result[1].segments.push(segment);
             }
             "window" => {
@@ -301,8 +409,9 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
                 segment.detail = title.into();
                 segment.app = Some(app.into());
                 segment.app_name = Some(app_name.into());
+                segment.bucket = "window";
                 result[2].segments.push(segment.clone());
-                segment.key = format!("{app}\0{title}");
+                segment.key = format!("{identity}\0{title}").into();
                 segment.label = title.into();
                 segment.detail = app.into();
                 result[3].segments.push(segment);
@@ -312,40 +421,66 @@ pub fn tracks(events: &[Event], tags: &[Value], ranges: &[Value], day: Range) ->
                 let title = event.data["title"].as_str().unwrap_or(url);
                 let mut segment = Segment::new(range, url, title);
                 segment.detail = url.into();
+                segment.bucket = "web";
                 result[3].segments.push(segment);
             }
             _ => {}
         }
     }
-    let observed: Vec<_> = result[1]
+    derive_tracks(&mut result, day);
+    let mut strings: HashSet<Arc<str>> = HashSet::new();
+    for track in &mut result {
+        for segment in &mut track.segments {
+            for value in [&mut segment.key, &mut segment.label, &mut segment.detail]
+                .into_iter()
+                .chain(segment.app.iter_mut())
+                .chain(segment.app_name.iter_mut())
+            {
+                if let Some(shared) = strings.get(value.as_ref()) {
+                    *value = shared.clone();
+                } else {
+                    strings.insert(value.clone());
+                }
+            }
+        }
+    }
+    result
+}
+pub fn derive_tracks(tracks: &mut [Track], day: Range) {
+    for track in tracks.iter_mut() {
+        track.segments.retain(|s| s.bucket != "derived");
+    }
+    let observed: Vec<_> = tracks[1]
         .segments
         .iter()
-        .filter(|s| s.key == "active" || s.key == "away")
+        .filter(|s| s.key.as_ref() == "active" || s.key.as_ref() == "away")
         .map(|s| s.range)
         .collect();
-    let tagged: Vec<_> = result[0].segments.iter().map(|s| s.range).collect();
+    let tagged: Vec<_> = tracks[0].segments.iter().map(|s| s.range).collect();
     for range in uncovered(&observed, &tagged, day) {
         let mut segment = Segment::new(range, "untagged", "Untagged");
         segment.color = [0.64, 0.68, 0.72];
-        result[0].segments.push(segment);
+        segment.bucket = "derived";
+        tracks[0].segments.push(segment);
     }
-    for track in &mut result {
+    for track in &mut *tracks {
         track.segments.sort_by_key(|s| (s.range.start, s.range.end));
     }
-    let known = result[1].segments.clone();
+    let known: Vec<_> = tracks[1].segments.iter().map(|s| s.range).collect();
     for pair in known.windows(2) {
-        if pair[0].range.end < pair[1].range.start {
+        if pair[0].end < pair[1].start {
             let mut segment = Segment::new(
-                Range::new(pair[0].range.end, pair[1].range.start),
+                Range::new(pair[0].end, pair[1].start),
                 "unknown",
-                "Unobserved",
+                "No recording",
             );
+            segment.detail = "No verified observations for this gap; power state is unknown".into();
             segment.color = [0.49, 0.53, 0.58];
-            result[1].segments.push(segment);
+            segment.bucket = "derived";
+            tracks[1].segments.push(segment);
         }
     }
-    result[1].segments.sort_by_key(|s| s.range.start);
-    result
+    tracks[1].segments.sort_by_key(|s| s.range.start);
 }
 #[cfg(test)]
 pub fn fixture(day: Range) -> Vec<Track> {
@@ -476,7 +611,7 @@ mod tests {
                 &data[1]
                     .segments
                     .iter()
-                    .filter(|s| s.key == "active")
+                    .filter(|s| s.key.as_ref() == "active")
                     .map(|s| s.range)
                     .collect::<Vec<_>>(),
                 day
@@ -544,8 +679,221 @@ mod tests {
         let tracks = tracks(&events, &[], &[], day);
         let summary = summarize(&tracks[2].segments, day);
         let labels: std::collections::HashSet<_> =
-            summary.iter().map(|row| row.label.as_str()).collect();
+            summary.iter().map(|row| row.label.as_ref()).collect();
         assert_eq!(labels, ["Aseprite", "Balatro"].into_iter().collect());
         assert_eq!(summary.len(), 2);
     }
+
+    #[test]
+    fn application_documents_rank_clipped_merged_time_and_keep_apps_separate() {
+        let events = [
+            (0, 60, "Browser", "Long page"),
+            (40, 80, "Browser", "Long page"),
+            (80, 100, "Browser", "Short page"),
+            (0, 100, "Editor", "Long page"),
+            (100, 120, "Browser", "Outside selection"),
+        ].into_iter().enumerate().map(|(id, (start, end, name, title))| Event {
+            id: id as i64,
+            bucket: "window".into(),
+            start_ts: start,
+            end_ts: end,
+            data: serde_json::json!({"app":"/usr/bin/shared-launcher", "app_name":name, "title":title}),
+        }).collect::<Vec<_>>();
+        let tracks = tracks(&events, &[], &[], Range::new(0, 120));
+        assert_eq!(summarize(&tracks[3].segments, Range::new(0, 120)).len(), 4);
+        let rows = application_documents(
+            &tracks[3].segments,
+            &application_identity("/usr/bin/shared-launcher", "Browser"),
+            Range::new(20, 100),
+        );
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.label.as_ref(), r.duration))
+                .collect::<Vec<_>>(),
+            vec![("Long page", 60), ("Short page", 20)]
+        );
+        assert_eq!(rows[0].share, 75.0);
+        assert!(
+            application_documents(&tracks[3].segments, "missing", Range::new(0, 120)).is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod computer_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn computer_evidence_overrides_legacy_afk_and_keeps_diagnostics_separate() {
+        let e = |id, bucket: &str, start, end, data| Event {
+            id,
+            bucket: bucket.into(),
+            start_ts: start,
+            end_ts: end,
+            data,
+        };
+        let events = vec![
+            e(1, "afk", 0, 10_000, json!({"status":"active"})),
+            e(
+                2,
+                "computer",
+                2000,
+                4000,
+                json!({"machine":"awake","activity":"active","recording":"unobserved","window_available":false,"reason":"window: permission denied","source":"mock"}),
+            ),
+            e(
+                3,
+                "computer",
+                4000,
+                8000,
+                json!({"machine":"asleep","activity":"unknown","recording":"recording","source":"mock OS"}),
+            ),
+            e(
+                4,
+                "computer",
+                8000,
+                10_000,
+                json!({"machine":"awake","activity":"away","recording":"recording","source":"mock"}),
+            ),
+        ];
+        let tracks = tracks(&events, &[], &[], Range::new(0, 10_000));
+        assert_eq!(
+            union_duration(
+                &tracks[1]
+                    .segments
+                    .iter()
+                    .filter(|s| s.key.as_ref() == "active")
+                    .map(|s| s.range)
+                    .collect::<Vec<_>>(),
+                Range::new(0, 10_000)
+            ),
+            4000
+        );
+        assert!(tracks[1]
+            .segments
+            .iter()
+            .any(|s| s.label.as_ref() == "Sleep"));
+        assert!(tracks[2]
+            .segments
+            .iter()
+            .any(|s| s.label.as_ref() == "Unobserved" && s.detail.contains("permission denied")));
+    }
+    #[test]
+    fn unexplained_gap_is_not_a_window_observation_failure() {
+        let events = vec![
+            Event {
+                id: 1,
+                bucket: "afk".into(),
+                start_ts: 0,
+                end_ts: 1000,
+                data: json!({"status":"active"}),
+            },
+            Event {
+                id: 2,
+                bucket: "afk".into(),
+                start_ts: 3000,
+                end_ts: 4000,
+                data: json!({"status":"active"}),
+            },
+        ];
+        let tracks = tracks(&events, &[], &[], Range::new(0, 4000));
+        let gap = tracks[1]
+            .segments
+            .iter()
+            .find(|s| s.range == Range::new(1000, 3000))
+            .unwrap();
+        assert_eq!(gap.label.as_ref(), "No recording");
+        assert_ne!(gap.label.as_ref(), "Unobserved");
+    }
+}
+
+#[cfg(test)]
+mod power_boundary_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn sleep_across_utc_day_boundary_does_not_count_as_active_or_untagged_work() {
+        let hour = 3_600_000;
+        let events = vec![
+            Event {
+                id: 1,
+                bucket: "computer".into(),
+                start_ts: 23 * hour,
+                end_ts: 25 * hour,
+                data: json!({"machine":"asleep","activity":"unknown","recording":"recording","source":"mock OS lifecycle"}),
+            },
+            Event {
+                id: 2,
+                bucket: "computer".into(),
+                start_ts: 25 * hour,
+                end_ts: 26 * hour,
+                data: json!({"machine":"awake","activity":"active","recording":"recording","window_available":true,"source":"mock"}),
+            },
+        ];
+        let day = Range::new(24 * hour, 48 * hour);
+        let tracks = tracks(&events, &[], &[], day);
+        let sleep = tracks[1]
+            .segments
+            .iter()
+            .find(|s| s.key.as_ref() == "asleep")
+            .unwrap();
+        assert_eq!(sleep.range, Range::new(24 * hour, 25 * hour));
+        assert_eq!(
+            union_duration(
+                &tracks[0]
+                    .segments
+                    .iter()
+                    .map(|s| s.range)
+                    .collect::<Vec<_>>(),
+                day
+            ),
+            hour
+        );
+    }
+    #[test]
+    fn verified_off_is_displayable_but_unknown_gap_is_not_relabelled_off() {
+        let events = vec![
+            Event {
+                id: 1,
+                bucket: "computer".into(),
+                start_ts: 1000,
+                end_ts: 2000,
+                data: json!({"machine":"off","activity":"unknown","recording":"unknown","source":"mock verified OS history"}),
+            },
+            Event {
+                id: 2,
+                bucket: "computer".into(),
+                start_ts: 2000,
+                end_ts: 3000,
+                data: json!({"machine":"unknown","activity":"unknown","recording":"unknown","source":"sampling gap"}),
+            },
+        ];
+        let tracks = tracks(&events, &[], &[], Range::new(0, 4000));
+        assert!(tracks[1]
+            .segments
+            .iter()
+            .any(|s| s.key.as_ref() == "off" && s.detail.contains("verified OS history")));
+        assert!(tracks[1]
+            .segments
+            .iter()
+            .any(|s| s.range == Range::new(2000, 3000) && s.label.as_ref() == "No recording"));
+        assert!(tracks[0].segments.is_empty());
+    }
+}
+
+pub fn tag_path(tags: &[Value], id: i64) -> String {
+    let mut names = Vec::new();
+    let mut current = Some(id);
+    for _ in 0..tags.len() {
+        let Some(tag) = tags.iter().find(|t| t["id"].as_i64() == current) else {
+            break;
+        };
+        names.push(tag["name"].as_str().unwrap_or("Unknown"));
+        current = tag["parent_id"].as_i64();
+        if current.is_none() {
+            break;
+        }
+    }
+    names.reverse();
+    names.join(", ")
 }

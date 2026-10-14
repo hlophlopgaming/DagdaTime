@@ -26,12 +26,12 @@ impl Collection {
     }
     fn fields(self) -> &'static [&'static str] {
         match self {
-            Self::Tags => &["name", "color", "parent_id"],
+            Self::Tags => &["name", "color", "parent_id", "archived"],
             Self::TagRanges => &["tag_id", "start_ts", "end_ts", "note"],
             Self::Rules => &["field", "pattern", "tag_id", "priority"],
         }
     }
-    fn select(self) -> String {
+    pub(crate) fn select(self) -> String {
         let fields = std::iter::once("id")
             .chain(self.fields().iter().copied())
             .map(|field| format!("'{field}', {field}"))
@@ -76,9 +76,19 @@ impl Storage {
                 AND e.start_ts < ?3 AND e.end_ts > ?2
             ORDER BY e.start_ts, e.id LIMIT 100001",
         )?;
-        let events = statement
+        let mut events = statement
             .query_map(params![bucket, from, to], event_from_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        // A persisted end may fall outside the SQL range while its live end reaches it.
+        for tail in self.tails.values() {
+            if bucket.is_none_or(|bucket| tail.bucket == bucket) {
+                events.retain(|event| event.id != tail.id);
+                if tail.start_ts < to && tail.end_ts > from {
+                    events.push(tail.clone());
+                }
+            }
+        }
+        events.sort_by_key(|event| (event.start_ts, event.id));
         if events.len() > 100_000 {
             return Err(invalid("too many events; query a shorter interval"));
         }
@@ -140,6 +150,13 @@ impl Storage {
                     .is_some_and(|name| !name.trim().is_empty())
                 {
                     return Err(invalid("tag name must be nonempty"));
+                }
+                let archived = object.entry("archived").or_insert(Value::from(0));
+                if let Some(value) = archived.as_bool() {
+                    *archived = Value::from(i64::from(value));
+                }
+                if !matches!(archived.as_i64(), Some(0 | 1)) {
+                    return Err(invalid("archived must be boolean or 0/1"));
                 }
                 object.entry("color").or_insert(Value::Null);
                 object.entry("parent_id").or_insert(Value::Null);
@@ -259,14 +276,19 @@ impl Storage {
             transaction.last_insert_rowid()
         };
         transaction.commit()?;
+        self.metadata_version = self.metadata_version.wrapping_add(1);
         self.get(collection, result_id)
     }
 
     pub fn delete(&mut self, collection: Collection, id: i64) -> Result<bool, StorageError> {
-        Ok(self.connection.execute(
+        let deleted = self.connection.execute(
             &format!("DELETE FROM {} WHERE id=?1", collection.table()),
             [id],
-        )? > 0)
+        )? > 0;
+        if deleted {
+            self.metadata_version = self.metadata_version.wrapping_add(1);
+        }
+        Ok(deleted)
     }
 }
 

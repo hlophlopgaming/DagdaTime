@@ -96,3 +96,45 @@ async fn authentication_crud_and_pause_status() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn computer_state_and_diagnostic_evidence_are_available_via_local_api() {
+    use draugr_time_daemon::Tracker;
+    use draugr_time_watchers::{MockWatcher, WatcherError};
+    let shared = Shared::new(Storage::open_in_memory().unwrap(), "test-token".into(), 300);
+    let mut tracker = Tracker::new(shared.clone());
+    let watcher = MockWatcher {
+        window: Err(WatcherError::PermissionDenied("window title")),
+        idle: Ok(0),
+    };
+    for ts in [1000, 2000] {
+        tracker.poll_once(ts, &watcher, &watcher).unwrap();
+    }
+    let app = router(shared);
+    for path in ["/status", "/events?bucket=computer&from=0&to=3000"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("Authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        let computer = if path == "/status" {
+            &value["computer"]
+        } else {
+            &value[0]["data"]
+        };
+        assert_eq!(computer["machine"], "awake");
+        assert_eq!(computer["activity"], "active");
+        assert_eq!(computer["recording"], "unobserved");
+        assert!(computer["reason"].as_str().unwrap().contains("window"));
+        assert_eq!(computer["source"], "running process");
+    }
+}
