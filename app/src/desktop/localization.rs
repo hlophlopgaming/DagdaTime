@@ -136,11 +136,11 @@ impl LocaleProvider for SystemLocale {
                     0,
                 )
             };
-            return if length > 1 {
+            if length > 1 {
                 String::from_utf16_lossy(&name[..length as usize - 1])
             } else {
                 String::new()
-            };
+            }
         }
         #[cfg(target_os = "macos")]
         {

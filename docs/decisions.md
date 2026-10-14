@@ -609,3 +609,10 @@ Package the existing console binary alongside the GUI in every platform release
 archive. Keep personal monthly reports and database verification snapshots under
 /tmp, outside the published source tree. Ship the accumulated M5.5/M5.6/M6/M7 work
 as v0.2.0; browser capture and installers remain future milestones.
+
+## 2026-10-14 — Windows CI fix and v0.2.1
+
+Windows CI rejected a needless return in the cfg-selected locale-provider branch;
+remove it while retaining its existing fallback and API calls. Publish v0.2.1
+from the corrected commit. The already-pushed v0.2.0 candidate tag stays intact,
+and its failed check prevents the release workflow from publishing its binaries.
