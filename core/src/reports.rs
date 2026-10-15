@@ -85,9 +85,7 @@ impl Report {
             ..Default::default()
         };
         // Index sets permit overlapping tags without rescanning every range at every boundary.
-        let mut changes: BTreeMap<i64, Vec<(bool, bool, usize)>> = BTreeMap::new();
-        changes.entry(from).or_default();
-        changes.entry(to).or_default();
+        let mut changes = Vec::with_capacity(2 * (events.len() + ranges.len()));
         for (is_tag, start, end, index) in events
             .iter()
             .enumerate()
@@ -101,11 +99,8 @@ impl Report {
         {
             let (start, end) = (start.max(from), end.min(to));
             if end > start {
-                changes
-                    .entry(start)
-                    .or_default()
-                    .push((is_tag, true, index));
-                changes.entry(end).or_default().push((is_tag, false, index));
+                changes.push((start, is_tag, true, index));
+                changes.push((end, is_tag, false, index));
             }
         }
         let first_computer = events
@@ -132,10 +127,14 @@ impl Report {
             .collect();
         let mut buckets: HashMap<&str, BTreeSet<(i64, usize)>> = HashMap::new();
         let mut assigned = BTreeSet::new();
-        let points: Vec<_> = changes.keys().copied().collect();
-        for pair in points.windows(2) {
-            let (start, end) = (pair[0], pair[1]);
-            for &(is_tag, add, i) in &changes[&start] {
+        changes.sort_unstable_by_key(|change| change.0);
+        let mut boundaries = changes.chunk_by(|a, b| a.0 == b.0).peekable();
+        while let Some(batch) = boundaries.next() {
+            let Some(next) = boundaries.peek() else {
+                break;
+            };
+            let (start, end) = (batch[0].0, next[0].0);
+            for &(_, is_tag, add, i) in batch {
                 let set = if is_tag {
                     &mut assigned
                 } else {
