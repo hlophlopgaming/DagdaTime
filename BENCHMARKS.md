@@ -83,3 +83,60 @@ All 61 core tests pass; two independent read-only reviewers found no regression.
 | unique | 16 | 0.012526 | 1.407x | 1.262x |
 | unique | 25000 | 19.346582 | 1.544x | 1.191x |
 | unique | 5000 | 3.155522 | 1.756x | 1.333x |
+
+## Pass 3: rejected range-root cache; convergence
+
+Precompute each range's resolved tag root to avoid per-span hash lookups.
+The differential test passes, but the extra vector slows several cases and
+larger-case improvements are only a few percent. Revert this experiment; the
+retained implementation is pass 2. No benchmark input or measurement setting
+changed in any pass.
+
+| Shape | Window events | Experiment mean (ms) | Speedup vs pass 2 |
+| --- | ---: | ---: | ---: |
+| overlapping | 16 | 0.014729 | 0.955x |
+| overlapping | 25000 | 17.002190 | 1.056x |
+| overlapping | 5000 | 3.313659 | 0.975x |
+| sequential | 16 | 0.012867 | 0.966x |
+| sequential | 25000 | 15.164498 | 1.004x |
+| sequential | 5000 | 2.583311 | 1.010x |
+| unique | 16 | 0.012959 | 0.967x |
+| unique | 25000 | 18.654631 | 1.037x |
+| unique | 5000 | 3.324364 | 0.949x |
+
+Stop after this diminishing-return pass. The production sweep remains about the
+same source size as the original; no broad refactor or unrelated milestone work
+is justified. Two read-only reviewers rechecked the retained implementation.
+
+## Reproduction and limits
+
+Run `original` at commit `b3aa53c`, `flat` at `6471bd0` and `buckets` at
+`1d95998`. Criterion raw estimates and 95% confidence intervals are in
+`target/criterion/report_calculate/<shape>/<size>/<baseline>/estimates.json`
+(local build artifacts). Pass 3 used the same command with `--save-baseline roots`.
+A future rerun must preserve the benchmark file from the baseline commit.
+
+These are isolated in-memory calculation measurements on one Linux machine,
+not end-to-end UI/SQLite or Windows/macOS latency claims. Synthetic inputs do
+not characterize arbitrarily deep tag trees, dense tag overlap or all database
+sizes. Existing storage/chunking, interval, DST and CLI integration tests cover
+those output paths; real native performance remains to be measured on each OS.
+No platform code changed; manual checks can navigate Day overview, Week and
+Reports on native Windows/macOS and confirm displayed totals and responsiveness.
+
+## Final validation
+
+```text
+cargo fmt --check
+  exit 0 (no formatting differences)
+cargo clippy --offline --all-targets -- -D warnings
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.05s
+cargo test --offline
+  Finished `test` profile [unoptimized + debuginfo] target(s) in 26.77s
+  186 passed; 0 failed; 7 ignored across the workspace
+```
+
+Ignored tests require native desktop/session fixtures or isolated process-language
+execution. No ignored test was enabled as part of this report-only change.
+The retained production source matches pass 2 exactly after reverting pass 3.
+Benchmark file diff against `b3aa53c` is empty.
