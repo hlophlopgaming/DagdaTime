@@ -534,3 +534,7 @@ fn activitywatch(value: Value) -> Result<Archive, StorageError> {
         tag_ranges: Vec::new(),
     })
 }
+
+#[cfg(test)]
+#[path = "report_reference.rs"]
+mod reference;

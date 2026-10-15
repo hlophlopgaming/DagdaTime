@@ -533,3 +533,48 @@ fn empty_report_handles_large_timestamp_ranges_without_daily_iteration() {
     assert_eq!(report.active_ms, 0);
     assert!(report.intervals.is_empty());
 }
+
+#[test]
+fn report_context_fallbacks_and_web_precedence_remain_exact() {
+    let events = vec![
+        active(0, 40),
+        event(
+            2,
+            "window",
+            0,
+            10,
+            json!({"app":"editor","app_name":"Editor","title":"draft"}),
+        ),
+        event(
+            3,
+            "window",
+            10,
+            20,
+            json!({"app":"terminal","app_name":"","title":"shell"}),
+        ),
+        event(4, "window", 20, 30, json!({"app":"browser","title":"page"})),
+        event(5, "web", 20, 30, json!({"url":"https://example.test/文档"})),
+    ];
+    let report = Report::calculate(&events, &[], &[], 0, 40).unwrap();
+    let contexts: Vec<_> = report
+        .intervals
+        .iter()
+        .map(|i| {
+            (
+                i.start_ts,
+                i.end_ts,
+                i.application.as_ref(),
+                i.document.as_ref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        contexts,
+        vec![
+            (0, 10, "Editor", "draft"),
+            (10, 20, "terminal", "shell"),
+            (20, 30, "browser", "https://example.test/文档"),
+            (30, 40, "Unknown application", "Unknown document"),
+        ]
+    );
+}
