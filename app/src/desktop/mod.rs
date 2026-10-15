@@ -359,11 +359,6 @@ impl State {
             visible,
             exit_on_close_request: false,
             icon: crate::branding::window_icon().ok(),
-            #[cfg(target_os = "linux")]
-            platform_specific: window::settings::PlatformSpecific {
-                application_id: "draugr-time".into(),
-                ..Default::default()
-            },
             ..window::Settings::default()
         });
         self.window = Some(id);
