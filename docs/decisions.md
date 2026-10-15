@@ -709,3 +709,15 @@ Publish the M7 Week redesign and report/export correctness fixes as v0.2.3.
 Reuse the existing tag-triggered, three-platform CI/release workflow. Keep its
 build gating and package layout unchanged; record behavior, local validation
 and remaining platform checks in docs/releases/v0.2.3.md.
+
+
+## 2026-10-15 — M7 report sweep allocation and bucket dispatch
+
+Keep the shared report algorithm and its overlap precedence, but collect clipped
+boundary changes in one timestamp-sorted vector and process equal-time batches.
+Use dedicated computer/AFK/window/web index sets instead of a dynamic bucket map;
+unknown bucket boundaries remain harmless. This removes per-boundary allocations
+and repeated hashing without changing report, UI, API or CLI output. Preserve
+arbitrary input order and overlapping events with the existing `(id, index)`
+sets. Criterion results and the frozen original-sweep correctness oracle are
+recorded in BENCHMARKS.md; Criterion is development-only.

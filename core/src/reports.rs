@@ -125,7 +125,10 @@ impl Report {
                 (tag.id, (root.id, root.name.as_str()))
             })
             .collect();
-        let mut buckets: HashMap<&str, BTreeSet<(i64, usize)>> = HashMap::new();
+        let mut computer = BTreeSet::new();
+        let mut afk = BTreeSet::new();
+        let mut windows = BTreeSet::new();
+        let mut web = BTreeSet::new();
         let mut assigned = BTreeSet::new();
         changes.sort_unstable_by_key(|change| change.0);
         let mut boundaries = changes.chunk_by(|a, b| a.0 == b.0).peekable();
@@ -138,7 +141,13 @@ impl Report {
                 let set = if is_tag {
                     &mut assigned
                 } else {
-                    buckets.entry(&events[i].bucket).or_default()
+                    match events[i].bucket.as_str() {
+                        "computer" => &mut computer,
+                        "afk" => &mut afk,
+                        "window" => &mut windows,
+                        "web" => &mut web,
+                        _ => continue,
+                    }
                 };
                 let key = (if is_tag { ranges[i].id } else { events[i].id }, i);
                 if add {
@@ -147,15 +156,10 @@ impl Report {
                     set.remove(&key);
                 }
             }
-            let current = |name: &str| {
-                buckets
-                    .get(name)
-                    .and_then(|s| s.last())
-                    .map(|&(_, i)| &events[i])
-            };
+            let current = |set: &BTreeSet<(i64, usize)>| set.last().map(|&(_, i)| &events[i]);
             if !observed_active(
-                current("computer"),
-                current("afk"),
+                current(&computer),
+                current(&afk),
                 first_computer.is_none_or(|t| end <= t),
             ) {
                 continue;
@@ -165,8 +169,8 @@ impl Report {
                 .and_then(|&(_, i)| roots.get(&ranges[i].tag_id))
                 .map(|(id, name)| (Some(*id), *name))
                 .unwrap_or((None, "Untagged"));
-            let window = current("window");
-            let web = current("web");
+            let window = current(&windows);
+            let web = current(&web);
             let application = window
                 .and_then(|w| {
                     w.data["app_name"]

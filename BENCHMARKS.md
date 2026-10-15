@@ -23,6 +23,7 @@ Every timed iteration computes a fresh report; no cross-iteration cache.
 ```sh
 cargo bench --offline -p draugr-time-core --bench reports -- --save-baseline original
 cargo bench --offline -p draugr-time-core --bench reports -- --save-baseline flat
+cargo bench --offline -p draugr-time-core --bench reports -- --save-baseline buckets
 ```
 
 ## Baseline
@@ -63,3 +64,22 @@ already contributes both endpoints. All 61 core tests pass.
 | unique | 5000 | 4.207552 | 1.317x |
 
 Tiny cases miss the 1.2x target; retain the improvement and measure bucket dispatch next.
+
+## Pass 2: dedicated bucket sets
+
+Replace the dynamic bucket map with the four existing report context sets.
+Unknown bucket endpoints remain in the boundary list; only unused membership
+updates disappear. Keep overlap ordering and all validation unchanged.
+All 61 core tests pass; two independent read-only reviewers found no regression.
+
+| Shape | Window events | Bucket mean (ms) | Speedup vs original | Speedup vs pass 1 |
+| --- | ---: | ---: | ---: | ---: |
+| overlapping | 16 | 0.014069 | 1.508x | 1.316x |
+| overlapping | 25000 | 17.950840 | 2.052x | 1.404x |
+| overlapping | 5000 | 3.229233 | 1.993x | 1.464x |
+| sequential | 16 | 0.012425 | 1.418x | 1.289x |
+| sequential | 25000 | 15.227958 | 1.746x | 1.339x |
+| sequential | 5000 | 2.609913 | 1.881x | 1.421x |
+| unique | 16 | 0.012526 | 1.407x | 1.262x |
+| unique | 25000 | 19.346582 | 1.544x | 1.191x |
+| unique | 5000 | 3.155522 | 1.756x | 1.333x |
