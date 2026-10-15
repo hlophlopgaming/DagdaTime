@@ -721,3 +721,12 @@ and repeated hashing without changing report, UI, API or CLI output. Preserve
 arbitrary input order and overlapping events with the existing `(id, index)`
 sets. Criterion results and the frozen original-sweep correctness oracle are
 recorded in BENCHMARKS.md; Criterion is development-only.
+
+## 2026-10-15 — Linux application identity and release launcher
+
+Use `draugr-time` for the Iced Linux application ID, desktop filename,
+StartupWMClass and installed icon name. Wayland taskbars resolve application
+icons through desktop entries rather than the window's RGBA icon. Bundle the
+existing draugr PNG and a per-user installer with Linux releases; install binaries
+under XDG_DATA_HOME/draugr-time and register the launcher/icon under the same
+XDG data root. No root access, new dependencies or runtime installation needed.

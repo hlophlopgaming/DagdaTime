@@ -71,6 +71,14 @@ jobs:
             target/release/draugr-time-cli
             target/release/draugr-time-cli.exe
           if-no-files-found: error
+      - name: Upload Linux launcher and icon
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Linux-desktop-integration
+          path: |
+            scripts/install-linux.py
+            logo/blackDraugr128.png
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -81,13 +89,19 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: Linux-desktop-integration
+          path: linux-desktop
+      - uses: actions/download-artifact@v4
+        with:
           pattern: Draugr-Time-*
           path: artifacts
       - name: Package desktop binaries
         run: |
           mkdir -p release
           chmod +x artifacts/Draugr-Time-{Linux,macOS}/draugr-time artifacts/Draugr-Time-{Linux,macOS}/draugr-time-cli
-          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time draugr-time-cli
+          cp linux-desktop/scripts/install-linux.py artifacts/Draugr-Time-Linux/
+          cp linux-desktop/logo/blackDraugr128.png artifacts/Draugr-Time-Linux/draugr-time.png
+          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time draugr-time-cli install-linux.py draugr-time.png
           tar -C artifacts/Draugr-Time-macOS -czf release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz draugr-time draugr-time-cli
           cd artifacts/Draugr-Time-Windows
           zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe draugr-time-cli.exe
