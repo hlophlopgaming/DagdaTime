@@ -121,6 +121,7 @@ fn native_widgets_render_every_language_screen_and_dialog() {
         state.cache.clear();
         state.grid_cache.clear();
         for dark in [false, true] {
+            state.theme = native_theme(dark);
             for screen in [
                 "Day", "Overview", "Week", "Reports", "Tags", "Rules", "Settings",
             ] {
@@ -163,12 +164,34 @@ fn native_widgets_render_every_language_screen_and_dialog() {
                     &mut renderer,
                     &native_theme(dark),
                     &renderer::Style {
-                        text_color: Color::WHITE,
+                        text_color: native_theme(dark).palette().text,
                     },
                     Layout::new(&node),
                     iced::mouse::Cursor::Unavailable,
                     &viewport,
                 );
+                if screen == "Week" && language == Language::En {
+                    if let Some(directory) = std::env::var_os("DRAUGR_TIME_SCREENSHOT_DIR") {
+                        use iced::advanced::renderer::Headless as _;
+                        let pixels = renderer.screenshot(
+                            iced::Size::new(900, 600),
+                            1.0,
+                            native_theme(dark).palette().background,
+                        );
+                        ::image::save_buffer(
+                            std::path::PathBuf::from(directory).join(if dark {
+                                "week-dark.png"
+                            } else {
+                                "week-light.png"
+                            }),
+                            &pixels,
+                            900,
+                            600,
+                            ::image::ColorType::Rgba8,
+                        )
+                        .unwrap();
+                    }
+                }
             }
             state.screen = "Tags";
             let _ = state.edit(tagging::Edit::Tag(2));

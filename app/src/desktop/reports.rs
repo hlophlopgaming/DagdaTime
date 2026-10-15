@@ -1,5 +1,5 @@
 use super::*;
-use chrono::Datelike;
+use chrono::{Datelike, TimeZone, Timelike};
 use draugr_time_core::{Event, GroupBy, Report, Tag, TagRange};
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, Text};
 use iced::widget::column;
@@ -37,6 +37,8 @@ pub struct Day {
     pub tag_totals: BTreeMap<Option<i64>, i64>,
     pub bands: [Vec<Band>; 3],
     cache: Arc<Mutex<WeekCache>>,
+    hours: Vec<(Range, f32)>,
+    clock_extent: (f32, f32),
 }
 impl Day {
     fn summarize(date: NaiveDate, range: Range, report: &Report) -> Self {
@@ -45,26 +47,39 @@ impl Day {
             let duration = interval.end_ts.min(range.end) - interval.start_ts.max(range.start);
             *tag_totals.entry(interval.tag_id).or_default() += duration;
         }
-        Self {
+        let mut day = Self {
             date,
             range,
             active_ms: tag_totals.values().sum(),
             tag_totals,
             bands: Default::default(),
             cache: Arc::new(Mutex::new(WeekCache::default())),
+            hours: clock_hours(range),
+            clock_extent: (1440.0, 0.0),
+        };
+        let mut extent: (f32, f32) = (1440.0, 0.0);
+        for interval in day_intervals(report, range) {
+            for (start, end) in clock_spans(&day, Range::new(interval.start_ts, interval.end_ts)) {
+                extent.0 = extent.0.min(start);
+                extent.1 = extent.1.max(end);
+            }
         }
+        day.clock_extent = extent;
+        day
     }
 }
 fn day_intervals(
     report: &Report,
     range: Range,
 ) -> impl Iterator<Item = &draugr_time_core::ReportInterval> {
+    day_interval_slice(report, range).iter()
+}
+fn day_interval_slice(report: &Report, range: Range) -> &[draugr_time_core::ReportInterval] {
     let start = report
         .intervals
         .partition_point(|i| i.end_ts <= range.start);
-    report.intervals[start..]
-        .iter()
-        .take_while(move |i| i.start_ts < range.end)
+    let end = start + report.intervals[start..].partition_point(|i| i.start_ts < range.end);
+    &report.intervals[start..end]
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Band {
@@ -156,67 +171,325 @@ fn bands_from_tracks(
 struct WeekCache {
     geometry: canvas::Cache,
     theme: Option<Theme>,
+    highlight: Highlight,
+    minute: i64,
 }
+const WEEK_RULER: f32 = 24.0;
+const WEEK_ROW: f32 = 42.0;
 struct WeekCanvas<'a> {
-    day: &'a Day,
+    days: &'a [Day],
+    report: &'a Report,
+    tags: &'a [Tag],
+    highlight: &'a Highlight,
+    now: i64,
     stats: &'a timeline::PaintStats,
+}
+// Split at real local-hour boundaries so repeated/missing DST hours stay on the shared clock.
+fn clock_spans(day: &Day, range: Range) -> impl Iterator<Item = (f32, f32)> + '_ {
+    day.hours.iter().filter_map(move |(hour, minute)| {
+        model::clip(*hour, range).map(|r| {
+            (
+                minute + (r.start - hour.start) as f32 / 60_000.0,
+                minute + (r.end - hour.start) as f32 / 60_000.0,
+            )
+        })
+    })
+}
+impl WeekCanvas<'_> {
+    fn hours(&self) -> (f32, f32) {
+        let mut first: f32 = 1440.0;
+        let mut last: f32 = 0.0;
+        for day in self.days {
+            first = first.min(day.clock_extent.0);
+            last = last.max(day.clock_extent.1);
+        }
+        if last <= first {
+            return (0.0, 24.0);
+        }
+        if let Some(day) = self
+            .days
+            .iter()
+            .find(|d| d.range.start <= self.now && self.now < d.range.end)
+        {
+            for (start, end) in clock_spans(
+                day,
+                Range::new(self.now, (self.now + 60_000).min(day.range.end)),
+            ) {
+                first = first.min(start);
+                last = last.max(end);
+            }
+        }
+        (first.div_euclid(60.0), (last / 60.0).ceil().min(24.0))
+    }
+    fn day_at(&self, p: Point) -> Option<&Day> {
+        if p.y < WEEK_RULER {
+            return None;
+        }
+        self.days.get(((p.y - WEEK_RULER) / WEEK_ROW) as usize)
+    }
+    fn hover(&self, p: Point, size: Size) -> Option<(Range, Option<i64>, &str)> {
+        let day = self.day_at(p)?;
+        let (first, last) = self.hours();
+        let minute = (first + p.x / size.width * (last - first)) * 60.0;
+        let intervals = day_interval_slice(self.report, day.range);
+        let index = intervals.iter().position(|i| {
+            clock_spans(day, Range::new(i.start_ts, i.end_ts.min(self.now)))
+                .any(|(start, end)| start <= minute && minute < end)
+        })?;
+        let mut left = index;
+        let mut right = index;
+        while left > 0
+            && intervals[left - 1].tag_id == intervals[index].tag_id
+            && intervals[left - 1].end_ts == intervals[left].start_ts
+        {
+            left -= 1;
+        }
+        while right + 1 < intervals.len()
+            && intervals[right + 1].tag_id == intervals[index].tag_id
+            && intervals[right].end_ts == intervals[right + 1].start_ts
+        {
+            right += 1;
+        }
+        Some((
+            Range::new(
+                intervals[left].start_ts.max(day.range.start),
+                intervals[right].end_ts.min(day.range.end).min(self.now),
+            ),
+            intervals[index].tag_id,
+            &intervals[index].tag,
+        ))
+    }
 }
 impl canvas::Program<Message> for WeekCanvas<'_> {
     type State = ();
+    fn update(
+        &self,
+        _: &mut (),
+        event: &iced::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<Message>> {
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => cursor
+                .position_in(bounds)
+                .and_then(|p| self.day_at(p))
+                .map(|day| {
+                    canvas::Action::publish(Message::Report(Edit::OpenDay(day.date))).and_capture()
+                }),
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft) => {
+                Some(canvas::Action::request_redraw())
+            }
+            _ => None,
+        }
+    }
+    fn mouse_interaction(
+        &self,
+        _: &(),
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> mouse::Interaction {
+        if cursor
+            .position_in(bounds)
+            .and_then(|p| self.day_at(p))
+            .is_some()
+        {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
+    }
     fn draw(
         &self,
         _: &(),
         renderer: &Renderer,
         theme: &Theme,
         bounds: Rectangle,
-        _: mouse::Cursor,
+        cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        let mut cache = self.day.cache.lock().unwrap();
-        if cache.theme.as_ref() != Some(theme) {
+        let Some(first_day) = self.days.first() else {
+            return Vec::new();
+        };
+        let hover = cursor
+            .position_in(bounds)
+            .and_then(|p| self.hover(p, bounds.size()));
+        let highlight = hover
+            .as_ref()
+            .map(|h| (h.1, None))
+            .or_else(|| self.highlight.clone());
+        let mut cache = first_day.cache.lock().unwrap();
+        if cache.theme.as_ref() != Some(theme)
+            || cache.highlight != highlight
+            || cache.minute != self.now / 60_000
+        {
             cache.geometry.clear();
             cache.theme = Some(theme.clone());
+            cache.highlight = highlight.clone();
+            cache.minute = self.now / 60_000;
         }
-        vec![cache.geometry.draw(renderer, bounds.size(), |frame| {
+        let (first, last) = self.hours();
+        let x = |minute: f32| {
+            ((minute / 60.0 - first) / (last - first) * bounds.width).clamp(0.0, bounds.width)
+        };
+        let colors = theme.extended_palette();
+        let geometry = cache.geometry.draw(renderer, bounds.size(), |frame| {
             let started = Instant::now();
-            let colors = theme.extended_palette();
-            let row_height = (bounds.height - 18.0) / 2.0;
-            frame.fill_rectangle(
-                Point::new(0.0, 18.0),
-                Size::new(bounds.width, row_height * 2.0),
-                colors.background.weak.color,
-            );
-            for (row, bands) in self.day.bands.iter().enumerate() {
-                let (y, height) = match row {
-                    1 => (18.0, 6.0),
-                    2 => (18.0 + row_height, row_height),
-                    _ => (18.0, row_height),
-                };
-                for band in bands {
-                    let x = band.start as f32 / 1440.0 * bounds.width;
-                    let width = (band.end - band.start) as f32 / 1440.0 * bounds.width;
+            for (index, day) in self.days.iter().enumerate() {
+                let y = WEEK_RULER + index as f32 * WEEK_ROW;
+                frame.fill_rectangle(
+                    Point::new(0.0, y),
+                    Size::new(bounds.width, WEEK_ROW - 4.0),
+                    colors.background.base.color,
+                );
+                let today = day.range.start <= self.now && self.now < day.range.end;
+                for (start, end) in clock_spans(
+                    day,
+                    Range::new(day.range.start, day.range.end.min(self.now)),
+                ) {
                     frame.fill_rectangle(
-                        Point::new(x, y),
-                        Size::new(width, height),
-                        Color::from_rgb(band.color[0], band.color[1], band.color[2]),
+                        Point::new(x(start), y),
+                        Size::new((x(end) - x(start)).max(0.0), WEEK_ROW - 4.0),
+                        if today {
+                            Color {
+                                a: 0.12,
+                                ..colors.primary.base.color
+                            }
+                        } else {
+                            colors.background.weak.color
+                        },
                     );
                 }
+                for (row, bands) in day.bands.iter().enumerate() {
+                    let (offset, height) = match row {
+                        1 => (3.0, 4.0),
+                        2 => (21.0, 16.0),
+                        _ => (3.0, 16.0),
+                    };
+                    for band in bands {
+                        let range = Range::new(
+                            day.range.start + day.range.duration() * i64::from(band.start) / 1440,
+                            (day.range.start + day.range.duration() * i64::from(band.end) / 1440)
+                                .min(self.now),
+                        );
+                        for (start, end) in clock_spans(day, range) {
+                            frame.fill_rectangle(
+                                Point::new(x(start), y + offset),
+                                Size::new((x(end) - x(start)).max(0.0), height),
+                                Color {
+                                    r: band.color[0],
+                                    g: band.color[1],
+                                    b: band.color[2],
+                                    a: if row == 2 && highlight.is_some() {
+                                        0.22
+                                    } else {
+                                        1.0
+                                    },
+                                },
+                            );
+                        }
+                    }
+                }
+                if let Some((tag, _)) = highlight {
+                    for interval in
+                        day_intervals(self.report, day.range).filter(|i| i.tag_id == tag)
+                    {
+                        for (start, end) in clock_spans(
+                            day,
+                            Range::new(interval.start_ts, interval.end_ts.min(self.now)),
+                        ) {
+                            frame.fill_rectangle(
+                                Point::new(x(start), y + 21.0),
+                                Size::new((x(end) - x(start)).max(0.0), 16.0),
+                                tag_color(self.tags, tag),
+                            );
+                        }
+                    }
+                }
+                if today {
+                    let minute = clock_minute(self.now);
+                    if first * 60.0 <= minute && minute <= last * 60.0 {
+                        frame.stroke(
+                            &Path::line(
+                                Point::new(x(minute), y),
+                                Point::new(x(minute), y + WEEK_ROW - 4.0),
+                            ),
+                            Stroke::default()
+                                .with_color(colors.primary.strong.color)
+                                .with_width(2.0),
+                        );
+                    }
+                }
             }
-            for hour in [0, 6, 12, 18] {
-                let ts = self.day.range.start + self.day.range.duration() * hour / 24;
-                frame.fill_text(Text {
-                    content: model::time_label(ts),
-                    position: Point::new(hour as f32 / 24.0 * bounds.width, 0.0),
-                    size: 11.0.into(),
-                    color: colors.background.base.text,
-                    ..Default::default()
-                });
+            for hour in first as u32..=last as u32 {
+                let px = x(hour as f32 * 60.0);
+                let major = hour % 6 == 0;
+                frame.stroke(
+                    &Path::line(Point::new(px, WEEK_RULER), Point::new(px, bounds.height)),
+                    Stroke::default().with_color(Color {
+                        a: if major { 0.35 } else { 0.12 },
+                        ..colors.background.base.text
+                    }),
+                );
+                if major || bounds.width / (last - first) >= 34.0 || hour % 2 == 0 {
+                    frame.fill_text(Text {
+                        content: format!("{hour:02}"),
+                        position: Point::new(px.min(bounds.width - 18.0), 2.0),
+                        size: 11.0.into(),
+                        color: colors.background.base.text,
+                        ..Default::default()
+                    });
+                }
             }
             self.stats.frames.fetch_add(1, Ordering::Relaxed);
             self.stats
                 .max_build_us
                 .fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
-        })]
+        });
+        let mut result = vec![geometry];
+        if let (Some((range, _, tag)), Some(p)) = (hover, cursor.position_in(bounds)) {
+            let label = format!(
+                "{}–{} · {} · {}",
+                model::time_label(range.start),
+                model::time_label(range.end),
+                translate_label(tag),
+                model::duration(range.duration())
+            );
+            let width = (label.chars().count() as f32 * 7.5 + 16.0).min(bounds.width);
+            let point = Point::new(
+                (p.x + 12.0).min(bounds.width - width).max(0.0),
+                (p.y + 16.0).min(bounds.height - 30.0),
+            );
+            let mut overlay = Frame::new(renderer, bounds.size());
+            overlay.fill_rectangle(
+                point,
+                Size::new(width, 28.0),
+                colors.background.strong.color,
+            );
+            overlay.fill_text(Text {
+                content: label,
+                position: Point::new(point.x + 8.0, point.y + 6.0),
+                size: 12.0.into(),
+                color: colors.background.base.text,
+                ..Default::default()
+            });
+            result.push(overlay.into_geometry());
+        }
+        result
     }
+}
+fn clock_minute(ts: i64) -> f32 {
+    let time = Local.timestamp_millis_opt(ts).unwrap();
+    (time.hour() * 60 + time.minute()) as f32 + time.second() as f32 / 60.0
+}
+fn clock_hours(range: Range) -> Vec<(Range, f32)> {
+    let mut starts: Vec<_> = hour_ticks(range).into_iter().map(|(ts, _)| ts).collect();
+    if starts.first() != Some(&range.start) {
+        starts.insert(0, range.start);
+    }
+    starts.push(range.end);
+    starts
+        .windows(2)
+        .map(|pair| (Range::new(pair[0], pair[1]), clock_minute(pair[0])))
+        .collect()
 }
 #[derive(Clone, Debug)]
 pub struct Data {
@@ -224,6 +497,7 @@ pub struct Data {
     pub to: String,
     pub report: Report,
     pub days: Vec<Day>,
+    pub tags: Vec<Tag>,
 }
 #[derive(Default)]
 pub struct Ui {
@@ -358,6 +632,33 @@ fn date_range(from: &str, to: &str) -> Result<(NaiveDate, NaiveDate, Range), Str
     }
     Ok((from, to, range))
 }
+fn write_export(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    temporary.write_all(bytes).map_err(|e| e.to_string())?;
+    temporary.as_file().sync_all().map_err(|e| e.to_string())?;
+    temporary.persist(path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+fn hour_ticks_with<T: TimeZone>(
+    range: Range,
+    clock: impl Fn(i64) -> chrono::DateTime<T>,
+) -> Vec<(i64, String)> {
+    (range.start..range.end)
+        .step_by(60_000)
+        .filter_map(|ts| {
+            let time = clock(ts);
+            (time.minute() == 0).then(|| (ts, format!("{:02}:00", time.hour())))
+        })
+        .collect()
+}
+fn hour_ticks(range: Range) -> Vec<(i64, String)> {
+    hour_ticks_with(range, |ts| Local.timestamp_millis_opt(ts).unwrap())
+}
 fn load(
     shared: draugr_time_daemon::Shared,
     from: String,
@@ -365,17 +666,25 @@ fn load(
     week: bool,
 ) -> Result<Data, String> {
     let (start, end, range) = date_range(&from, &to)?;
-    let db = shared.storage.lock().map_err(|e| e.to_string())?;
-    let report = db
+    let report = shared
         .report(range.start, range.end)
         .map_err(|e| e.to_string())?;
     let tags = if week {
-        db.tags().map_err(|e| e.to_string())?
+        shared
+            .storage
+            .lock()
+            .map_err(|e| e.to_string())?
+            .tags()
+            .map_err(|e| e.to_string())?
     } else {
         Vec::new()
     };
     let first_computer = if week {
-        db.first_event_start("computer")
+        shared
+            .storage
+            .lock()
+            .map_err(|e| e.to_string())?
+            .first_event_start("computer")
             .map_err(|e| e.to_string())?
     } else {
         None
@@ -389,14 +698,25 @@ fn load(
             let mut cells = empty_cells();
             fill_tags(&mut cells, &report, range, &tags);
             for bucket in ["computer", "afk"] {
+                let end = if bucket == "afk" {
+                    first_computer.unwrap_or(range.end).min(range.end)
+                } else {
+                    range.end
+                };
                 let mut cursor = range.start;
-                while cursor < range.end {
-                    let (mut events, mut next) = db
-                        .event_chunk(Some(bucket), cursor, range.end, 8193)
+                while cursor < end {
+                    let (mut events, mut next) = shared
+                        .storage
+                        .lock()
+                        .map_err(|e| e.to_string())?
+                        .event_chunk(Some(bucket), cursor, end, 8193)
                         .map_err(|e| e.to_string())?;
                     if next <= cursor {
                         next = cursor + 1;
-                        events = db
+                        events = shared
+                            .storage
+                            .lock()
+                            .map_err(|e| e.to_string())?
                             .event_chunk(Some(bucket), cursor, next, i64::MAX)
                             .map_err(|e| e.to_string())?
                             .0;
@@ -405,10 +725,8 @@ fn load(
                     for e in &mut events {
                         e.start_ts = e.start_ts.max(cursor);
                         e.end_ts = e.end_ts.min(next);
-                        if bucket == "afk" {
-                            e.end_ts = e.end_ts.min(first_computer.unwrap_or(range.end));
-                        }
                     }
+                    events.retain(|e| e.end_ts > e.start_ts);
                     let tracks = model::tracks(&events, &[], &[], range);
                     fill_states(&mut cells, &tracks, range);
                     cursor = next;
@@ -429,6 +747,7 @@ fn load(
         to,
         report,
         days,
+        tags,
     })
 }
 impl State {
@@ -487,23 +806,28 @@ impl State {
                 if self.screen == "Overview" {
                     return Task::none();
                 }
-                if self.screen == "Week" {
+                let (from, to) = if self.screen == "Week" {
                     let start = self
                         .date
                         .checked_sub_days(Days::new(u64::from(
                             self.date.weekday().num_days_from_monday(),
                         )))
                         .unwrap_or(self.date);
-                    self.report_ui.from = start.to_string();
-                    self.report_ui.to = start
-                        .checked_add_days(Days::new(6))
-                        .unwrap_or(start)
-                        .to_string();
-                } else if self.report_ui.from.is_empty() {
-                    self.report_ui.from = self.date.to_string();
-                    self.report_ui.to = self.date.to_string();
-                }
-                if let Err(error) = date_range(&self.report_ui.from, &self.report_ui.to) {
+                    (
+                        start.to_string(),
+                        start
+                            .checked_add_days(Days::new(6))
+                            .unwrap_or(start)
+                            .to_string(),
+                    )
+                } else {
+                    if self.report_ui.from.is_empty() {
+                        self.report_ui.from = self.date.to_string();
+                        self.report_ui.to = self.date.to_string();
+                    }
+                    (self.report_ui.from.clone(), self.report_ui.to.clone())
+                };
+                if let Err(error) = date_range(&from, &to) {
                     self.report_ui.error = error;
                     return Task::none();
                 }
@@ -512,8 +836,7 @@ impl State {
                 self.report_ui.error.clear();
                 self.report_ui.data = None;
                 if self.fixture {
-                    let (start, end, _) =
-                        date_range(&self.report_ui.from, &self.report_ui.to).unwrap();
+                    let (start, end, _) = date_range(&from, &to).unwrap();
                     let mut date = start;
                     let mut days = Vec::new();
                     let mut total = Report::default();
@@ -536,10 +859,11 @@ impl State {
                     total.from = days[0].range.start;
                     total.to = days.last().unwrap().range.end;
                     self.report_ui.data = Some(Data {
-                        from: self.report_ui.from.clone(),
-                        to: self.report_ui.to.clone(),
+                        from,
+                        to,
                         report: total,
                         days,
+                        tags: self.tags.clone(),
                     });
                     return Task::none();
                 }
@@ -548,8 +872,6 @@ impl State {
                     return Task::none();
                 };
                 let shared = runtime.shared.clone();
-                let from = self.report_ui.from.clone();
-                let to = self.report_ui.to.clone();
                 let week = self.screen == "Week";
                 self.report_ui.loading = true;
                 return Task::perform(
@@ -613,23 +935,13 @@ impl State {
                                     "Start recording to export history".to_owned()
                                 })?;
                                 let archive = shared
-                                    .storage
-                                    .lock()
-                                    .map_err(|e| e.to_string())?
                                     .export_archive(report.from, report.to)
                                     .map_err(|e| e.to_string())?;
                                 serde_json::to_vec_pretty(&archive).map_err(|e| e.to_string())?
                             } else {
                                 report.csv(grouping, filter).into_bytes()
                             };
-                            // Atomic creation: an existing destination is never truncated by a failed export.
-                            let mut output = std::fs::OpenOptions::new()
-                                .write(true)
-                                .create_new(true)
-                                .open(file.path())
-                                .map_err(|e| e.to_string())?;
-                            use std::io::Write;
-                            output.write_all(&bytes).map_err(|e| e.to_string())
+                            write_export(file.path(), &bytes)
                         })
                         .await
                         .map_err(|e| e.to_string())
@@ -694,7 +1006,11 @@ impl State {
             return self.overview_view();
         }
         let ui = &self.report_ui;
-        let mut body = column![text(tr(self.screen)).size(22)].spacing(8);
+        let mut body = if self.screen == "Week" {
+            column![].spacing(8)
+        } else {
+            column![text(tr(self.screen)).size(22)].spacing(8)
+        };
         if self.screen == "Reports" {
             body = body.push(
                 row![
@@ -712,7 +1028,7 @@ impl State {
                 ]
                 .spacing(6),
             );
-        } else {
+        } else if ui.data.is_none() {
             body = body.push(button(text(tr("Refresh"))).on_press(Message::Report(Edit::Refresh)));
         }
         if ui.loading {
@@ -724,39 +1040,151 @@ impl State {
         let Some(data) = &ui.data else {
             return body.push(text(tr("Choose dates and load a report"))).into();
         };
-        body = body.push(text(format!(
+        let summary = format!(
             "{} – {} · {}: {}",
             data.from,
             data.to,
             tr("Active"),
             model::duration(data.report.active_ms)
-        )));
+        );
         if self.screen == "Week" {
+            body = body.push(
+                row![
+                    button(text(tr("Refresh"))).on_press(Message::Report(Edit::Refresh)),
+                    text(summary)
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        } else {
+            body = body.push(text(summary));
+        }
+        if self.screen == "Week" {
+            let now = draugr_time_daemon::now_ms();
+            let mut dates = column![space::vertical().height(WEEK_RULER)].spacing(0);
+            let mut totals = column![space::vertical().height(WEEK_RULER)].spacing(0);
+            let maximum = data
+                .days
+                .iter()
+                .map(|d| d.active_ms)
+                .max()
+                .unwrap_or(1)
+                .max(1);
             for day in &data.days {
-                body = body.push(
-                    button(text(format!(
-                        "{} · {}",
-                        day.date,
-                        model::duration(day.active_ms)
-                    )))
-                    .on_press(Message::Report(Edit::OpenDay(day.date))),
+                dates = dates.push(
+                    button(
+                        text(format!(
+                            "{} {}",
+                            tr([
+                                "Monday",
+                                "Tuesday",
+                                "Wednesday",
+                                "Thursday",
+                                "Friday",
+                                "Saturday",
+                                "Sunday"
+                            ][day.date.weekday().num_days_from_monday() as usize])
+                            .chars()
+                            .take(3)
+                            .collect::<String>(),
+                            day.date.format("%d.%m")
+                        ))
+                        .size(13),
+                    )
+                    .on_press(Message::Report(Edit::OpenDay(day.date)))
+                    .style(if day.range.start <= now && now < day.range.end {
+                        button::primary
+                    } else {
+                        button::text
+                    })
+                    .height(WEEK_ROW)
+                    .width(112),
                 );
-                body = body.push(
+                let share = (day.active_ms as f64 / maximum as f64 * 1000.0)
+                    .round()
+                    .clamp(1.0, 999.0) as u16;
+                totals = totals.push(
+                    container(
+                        column![
+                            text(model::duration(day.active_ms)).size(13),
+                            row![
+                                container(space::horizontal())
+                                    .height(5)
+                                    .width(Length::FillPortion(share))
+                                    .style(|theme: &Theme| container::Style {
+                                        background: Some(
+                                            theme.extended_palette().primary.base.color.into()
+                                        ),
+                                        ..Default::default()
+                                    }),
+                                space::horizontal().width(Length::FillPortion(1000 - share))
+                            ]
+                        ]
+                        .spacing(6),
+                    )
+                    .height(WEEK_ROW)
+                    .width(92)
+                    .padding([6, 4]),
+                );
+            }
+            body = body.push(
+                row![
+                    dates,
                     Canvas::new(WeekCanvas {
-                        day,
-                        stats: &self.stats,
+                        days: &data.days,
+                        report: &data.report,
+                        tags: &data.tags,
+                        highlight: &ui.highlight,
+                        now,
+                        stats: &self.stats
                     })
                     .width(Length::Fill)
-                    .height(52),
+                    .height(WEEK_RULER + WEEK_ROW * data.days.len() as f32),
+                    totals
+                ]
+                .spacing(8),
+            );
+            let mut legend = row![].spacing(6);
+            for r in data.report.rows(GroupBy::Tag, None) {
+                let color = tag_color(&data.tags, r.tag_id);
+                let highlight = Some((r.tag_id, None));
+                let next = if ui.highlight == highlight {
+                    None
+                } else {
+                    highlight
+                };
+                legend = legend.push(
+                    button(
+                        row![
+                            container(space::horizontal()).width(12).height(12).style(
+                                move |_: &Theme| container::Style {
+                                    background: Some(color.into()),
+                                    ..Default::default()
+                                }
+                            ),
+                            text(format!(
+                                "{} · {}",
+                                translate_label(&r.label),
+                                model::duration(r.duration_ms)
+                            ))
+                            .size(13)
+                        ]
+                        .spacing(6)
+                        .align_y(Alignment::Center),
+                    )
+                    .on_press(Message::Report(Edit::Highlight(next)))
+                    .style(if ui.highlight == Some((r.tag_id, None)) {
+                        button::primary
+                    } else {
+                        button::secondary
+                    }),
                 );
             }
-            for r in data.report.rows(GroupBy::Tag, None) {
-                body = body.push(text(format!(
-                    "{} · {}",
-                    translate_label(&r.label),
-                    model::duration(r.duration_ms)
-                )));
-            }
+            body = body.push(
+                scrollable(legend).direction(scrollable::Direction::Horizontal(
+                    scrollable::Scrollbar::default(),
+                )),
+            );
         } else {
             body = body.push(
                 row![
@@ -996,6 +1424,9 @@ fn translate_label(s: &str) -> String {
     }
 }
 fn tag_color(tags: &[Tag], id: Option<i64>) -> Color {
+    if id.is_none() {
+        return Color::from_rgb8(145, 155, 170);
+    }
     let rgb = id
         .and_then(|id| tags.iter().find(|t| t.id == id))
         .and_then(|t| t.color.as_deref())
@@ -1091,10 +1522,12 @@ impl canvas::Program<Message> for Compact<'_> {
                 color,
             );
         }
-        for hour in [0, 6, 12, 18] {
-            let ts = self.range.start + self.range.duration() * hour / 24;
+        for (ts, label) in hour_ticks(self.range)
+            .into_iter()
+            .filter(|(_, label)| matches!(label.as_str(), "00:00" | "06:00" | "12:00" | "18:00"))
+        {
             frame.fill_text(Text {
-                content: model::time_label(ts),
+                content: label,
                 position: Point::new(x(ts), 0.0),
                 size: 11.0.into(),
                 color: colors.background.base.text,
@@ -1560,7 +1993,7 @@ mod memory_regression_tests {
         );
     }
     #[test]
-    fn minute_bands_are_bounded_and_cache_rebuilds_only_on_resize_or_theme_change() {
+    fn minute_bands_are_bounded_and_grid_cache_tracks_theme_size_and_highlight() {
         let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
         let range = model::day_bounds(date);
         let tracks = model::fixture(range);
@@ -1568,16 +2001,21 @@ mod memory_regression_tests {
         let mut day = Day::summarize(date, range, &report);
         day.bands = bands_from_tracks(&tracks, &report, range, &[]);
         assert!(day.bands.iter().map(Vec::len).sum::<usize>() <= 3 * 1440);
+        let days = [day];
         let stats = timeline::PaintStats::default();
-        let canvas = WeekCanvas {
-            day: &day,
+        let mut grid = WeekCanvas {
+            days: &days,
+            report: &report,
+            tags: &[],
+            highlight: &None,
+            now: range.end,
             stats: &stats,
         };
         let renderer = Renderer::new(iced::Font::DEFAULT, 16.0.into());
         use canvas::Program;
-        let bounds = Rectangle::with_size(Size::new(800.0, 52.0));
+        let bounds = Rectangle::with_size(Size::new(800.0, 76.0));
         for _ in 0..2 {
-            canvas.draw(
+            grid.draw(
                 &(),
                 &renderer,
                 &native_theme(false),
@@ -1586,7 +2024,7 @@ mod memory_regression_tests {
             );
         }
         assert_eq!(stats.frames.load(Ordering::Relaxed), 1);
-        canvas.draw(
+        grid.draw(
             &(),
             &renderer,
             &native_theme(true),
@@ -1594,14 +2032,86 @@ mod memory_regression_tests {
             mouse::Cursor::Unavailable,
         );
         assert_eq!(stats.frames.load(Ordering::Relaxed), 2);
-        canvas.draw(
+        grid.draw(
             &(),
             &renderer,
             &native_theme(true),
-            Rectangle::with_size(Size::new(900.0, 52.0)),
+            Rectangle::with_size(Size::new(900.0, 76.0)),
             mouse::Cursor::Unavailable,
         );
         assert_eq!(stats.frames.load(Ordering::Relaxed), 3);
+        let selected = Some((None, None));
+        grid.highlight = &selected;
+        grid.draw(
+            &(),
+            &renderer,
+            &native_theme(true),
+            bounds,
+            mouse::Cursor::Unavailable,
+        );
+        assert_eq!(stats.frames.load(Ordering::Relaxed), 4);
+    }
+    #[test]
+    fn week_grid_uses_common_hours_hover_and_day_navigation() {
+        use canvas::Program;
+        let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let range = model::day_bounds(date);
+        let start = Local
+            .with_ymd_and_hms(2026, 10, 1, 10, 40, 0)
+            .unwrap()
+            .timestamp_millis();
+        let end = Local
+            .with_ymd_and_hms(2026, 10, 1, 12, 15, 0)
+            .unwrap()
+            .timestamp_millis();
+        let report = Report {
+            from: range.start,
+            to: range.end,
+            active_ms: end - start,
+            intervals: vec![draugr_time_core::ReportInterval {
+                start_ts: start,
+                end_ts: end,
+                tag_id: Some(1),
+                tag: "Project X".into(),
+                application: "Editor".into(),
+                document: "".into(),
+            }],
+        };
+        let days = [Day::summarize(date, range, &report)];
+        let stats = timeline::PaintStats::default();
+        let grid = WeekCanvas {
+            days: &days,
+            report: &report,
+            tags: &[],
+            highlight: &None,
+            now: range.end,
+            stats: &stats,
+        };
+        assert_eq!(grid.hours(), (10.0, 13.0));
+        let bounds = Rectangle::with_size(Size::new(600.0, 76.0));
+        let cursor = mouse::Cursor::Available(Point::new(200.0, 50.0));
+        let hover = grid.hover(Point::new(200.0, 50.0), bounds.size()).unwrap();
+        assert_eq!(hover.0, Range::new(start, end));
+        assert_eq!(hover.1, Some(1));
+        assert_eq!(hover.2, "Project X");
+        let action = grid
+            .update(
+                &mut (),
+                &iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                bounds,
+                cursor,
+            )
+            .unwrap();
+        assert!(
+            matches!(action.into_inner().0, Some(Message::Report(Edit::OpenDay(d))) if d==date)
+        );
+        let future = WeekCanvas {
+            now: start - 1,
+            ..grid
+        };
+        assert!(future
+            .hover(Point::new(200.0, 50.0), bounds.size())
+            .is_none());
     }
 }
 
@@ -1628,5 +2138,92 @@ mod band_boundary_tests {
             let bands = compress_cells([cells, [None; 1440], [None; 1440]]);
             assert_eq!(bands[0].len(), 2);
         }
+    }
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+    #[test]
+    fn export_replaces_existing_file_and_leaves_no_temporary_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("report.csv");
+        std::fs::write(&path, b"old").unwrap();
+        write_export(&path, b"complete replacement").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"complete replacement");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        let target = dir.path().join("directory");
+        std::fs::create_dir(&target).unwrap();
+        assert!(write_export(&target, b"failure").is_err());
+        assert!(target.is_dir());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+    #[test]
+    fn local_hour_ticks_follow_real_clock_on_short_and_long_days() {
+        use chrono::{Offset, TimeZone, Timelike};
+        // A deterministic timezone with a one-hour DST transition at 02:00.
+        for (hours, before, after) in [(23, 3600, 7200), (25, 7200, 3600)] {
+            let date = NaiveDate::from_ymd_opt(2026, 10, 25).unwrap();
+            let start = chrono::FixedOffset::east_opt(before)
+                .unwrap()
+                .from_local_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
+                .unwrap()
+                .timestamp_millis();
+            let end = start + hours * 3_600_000;
+            let ticks = hour_ticks_with(Range::new(start, end), |ts| {
+                let offset = if ts < start + 2 * 3_600_000 {
+                    before
+                } else {
+                    after
+                };
+                chrono::FixedOffset::east_opt(offset)
+                    .unwrap()
+                    .timestamp_millis_opt(ts)
+                    .unwrap()
+            });
+            assert!(ticks.iter().all(|(_, label)| label.ends_with(":00")));
+            assert_eq!(ticks.len(), hours as usize);
+            let six = ticks.iter().find(|(_, label)| label == "06:00").unwrap().0;
+            let clock = chrono::FixedOffset::east_opt(after)
+                .unwrap()
+                .timestamp_millis_opt(six)
+                .unwrap();
+            assert_eq!(clock.hour(), 6);
+            assert_eq!(clock.offset().fix().local_minus_utc(), after);
+        }
+    }
+    #[test]
+    fn week_legacy_afk_matches_loaded_day_after_computer_history_started() {
+        let shared = draugr_time_daemon::Shared::new(
+            draugr_time_core::Storage::open_in_memory().unwrap(),
+            "test".into(),
+            300,
+        );
+        let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let range = model::day_bounds(date);
+        {
+            let mut db = shared.storage.lock().unwrap();
+            db.record_interval(
+                "computer",
+                &serde_json::json!({"machine":"awake","activity":"active","recording":"recording"}),
+                range.start - 86_400_000,
+                range.start - 86_399_000,
+            )
+            .unwrap();
+            db.record_interval(
+                "afk",
+                &serde_json::json!({"status":"active"}),
+                range.start + 1000,
+                range.start + 2000,
+            )
+            .unwrap();
+        }
+        let data = load(shared.clone(), date.to_string(), date.to_string(), true).unwrap();
+        let snapshot = Runtime::load(shared, range, Default::default()).unwrap();
+        assert_eq!(
+            data.report.active_ms,
+            from_tracks(&snapshot.tracks, &[], range).unwrap().active_ms
+        );
+        assert!(data.days[0].bands[0].is_empty());
     }
 }

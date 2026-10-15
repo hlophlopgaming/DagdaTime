@@ -172,3 +172,19 @@ fn tray_and_away_navigation_release_reports() {
         assert!(state.report_ui.data.is_none());
     }
 }
+
+#[test]
+fn week_refresh_preserves_custom_report_dates() {
+    let (mut state, _) = State::boot();
+    state.fixture = true;
+    state.screen = "Reports";
+    state.report_ui.from = "2026-09-01".into();
+    state.report_ui.to = "2026-09-30".into();
+    state.screen = "Week";
+    let _ = state.edit_report(reports::Edit::Refresh);
+    assert_eq!(state.report_ui.from, "2026-09-01");
+    assert_eq!(state.report_ui.to, "2026-09-30");
+    assert_eq!(state.report_ui.data.as_ref().unwrap().days.len(), 7);
+    let _ = state.update(Message::Screen("Reports"));
+    assert_eq!(state.report_ui.data.as_ref().unwrap().days.len(), 30);
+}

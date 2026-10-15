@@ -255,7 +255,8 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "No observed active time for this day. Inactive time and recording gaps remain on the timeline.",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "Overlapping tags use the newest range; child tags count under their top-level project.",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports."
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.",
+    "History changed while reading; reload and try again": "History changed while reading; reload and try again"
   },
   "ru": {
     "Day": "День",
@@ -513,7 +514,8 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "Теги / без тегов · AFK · сон / выключен · пауза · нет записи · Нет наблюдения",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "За этот день нет подтверждённого активного времени. Неактивные периоды и пропуски записи видны на таймлайне.",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "При пересечении тегов учитывается самый новый диапазон; дочерние теги относятся к проекту верхнего уровня.",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "История импортируется целиком; пересекающиеся события одного bucket отклоняются. Экспорт JSON доступен в отчётах."
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "История импортируется целиком; пересекающиеся события одного bucket отклоняются. Экспорт JSON доступен в отчётах.",
+    "History changed while reading; reload and try again": "История изменилась во время чтения; обновите данные и повторите попытку"
   },
   "de": {
     "Day": "Tag",
@@ -771,7 +773,8 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "Mit / ohne Tag · AFK · Schlaf / aus · Pause · keine Aufzeichnung · Unbeobachtet",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "Keine beobachtete aktive Zeit an diesem Tag. Inaktive Zeiten und Aufzeichnungslücken bleiben auf der Zeitleiste.",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "Bei überlappenden Tags gilt der neueste Bereich; untergeordnete Tags zählen zum obersten Projekt.",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "Import fügt Verlauf atomar hinzu; überlappende Ereignisse werden abgelehnt. JSON-Export unter Berichte."
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "Import fügt Verlauf atomar hinzu; überlappende Ereignisse werden abgelehnt. JSON-Export unter Berichte.",
+    "History changed while reading; reload and try again": "Der Verlauf wurde beim Lesen geändert; neu laden und erneut versuchen"
   },
   "fr": {
     "Day": "Jour",
@@ -1029,7 +1032,8 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "Avec / sans tag · AFK · veille / arrêt · pause · sans suivi · Non observé",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "Aucune activité observée ce jour. Les périodes inactives et les lacunes restent sur la chronologie.",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "Les tags superposés utilisent la plage la plus récente ; les sous-tags comptent dans le projet principal.",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "L’import ajoute l’historique en une transaction ; les événements superposés sont refusés. Export JSON dans Rapports."
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "L’import ajoute l’historique en une transaction ; les événements superposés sont refusés. Export JSON dans Rapports.",
+    "History changed while reading; reload and try again": "L’historique a changé pendant la lecture ; rechargez et réessayez"
   },
   "es": {
     "Day": "Día",
@@ -1287,7 +1291,8 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "Con / sin etiqueta · AFK · suspensión / apagado · pausa · sin registro · No observado",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "No hay actividad observada este día. Los períodos inactivos y los huecos siguen en la cronología.",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "Las etiquetas superpuestas usan el intervalo más reciente; las subetiquetas cuentan en su proyecto principal.",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "La importación es atómica; se rechazan eventos superpuestos del mismo tipo. Exportación JSON en Informes."
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "La importación es atómica; se rechazan eventos superpuestos del mismo tipo. Exportación JSON en Informes.",
+    "History changed while reading; reload and try again": "El historial cambió durante la lectura; vuelve a cargarlo e inténtalo de nuevo"
   },
   "pt": {
     "Day": "Dia",
@@ -1545,7 +1550,8 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "Com / sem etiqueta · AFK · suspensão / desligado · pausa · sem registro · Não observado",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "Não há atividade observada neste dia. Períodos inativos e lacunas continuam na linha do tempo.",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "Etiquetas sobrepostas usam o intervalo mais recente; subetiquetas contam no projeto principal.",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "A importação é atômica; eventos sobrepostos do mesmo tipo são recusados. Exportação JSON em Relatórios."
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "A importação é atômica; eventos sobrepostos do mesmo tipo são recusados. Exportação JSON em Relatórios.",
+    "History changed while reading; reload and try again": "O histórico mudou durante a leitura; recarregue e tente novamente"
   },
   "zh": {
     "Day": "日视图",
@@ -1803,7 +1809,8 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "已标记 / 未标记 · 离开 · 睡眠 / 关机 · 暂停 · 无记录 · 未观测",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "当天没有观测到活跃时间。非活跃时段和记录空白仍显示在时间线上。",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "重叠标签使用最新范围；子标签计入顶层项目。",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "历史记录以事务方式导入；拒绝同一桶内的重叠事件。可在报告中导出JSON。"
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "历史记录以事务方式导入；拒绝同一桶内的重叠事件。可在报告中导出JSON。",
+    "History changed while reading; reload and try again": "读取期间历史记录发生变化；请重新加载并重试"
   },
   "ja": {
     "Day": "日",
@@ -2061,6 +2068,7 @@
     "Tagged / untagged · AFK · sleep / off · pause · no recording · Unobserved": "タグあり / なし · 離席 · スリープ / 電源オフ · 一時停止 · 記録なし · 未観測",
     "No observed active time for this day. Inactive time and recording gaps remain on the timeline.": "この日に観測された活動時間はありません。非活動時間と記録の空白はタイムラインに表示されます。",
     "Overlapping tags use the newest range; child tags count under their top-level project.": "タグが重なる場合は最新の範囲を使用し、子タグは最上位のプロジェクトに集計します。",
-    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "履歴は一括で読み込まれます。同じバケット内の重複イベントは拒否されます。レポートでJSONを書き出せます。"
+    "Import adds history atomically; overlapping event buckets are rejected. JSON export is available in Reports.": "履歴は一括で読み込まれます。同じバケット内の重複イベントは拒否されます。レポートでJSONを書き出せます。",
+    "History changed while reading; reload and try again": "読み込み中に履歴が変更されました。再読み込みして再試行してください"
   }
 }

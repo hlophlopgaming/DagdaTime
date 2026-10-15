@@ -623,7 +623,9 @@ impl State {
                     if let Some(runtime) = self.runtime.as_mut() {
                         #[cfg(target_os = "macos")]
                         runtime.pulse();
-                        self.status = runtime.status();
+                        if let Some(status) = runtime.status() {
+                            self.status = status;
+                        }
                     }
                     if !was_active
                         && self.status.computer.activity == "active"
@@ -999,13 +1001,17 @@ impl State {
                     if let Err(error) = runtime.pause(duration) {
                         self.error = error;
                     }
-                    self.status = runtime.status();
+                    if let Some(status) = runtime.status() {
+                        self.status = status;
+                    }
                 }
             }
             Message::Resume => {
                 if let Some(runtime) = self.runtime.as_ref() {
                     runtime.resume();
-                    self.status = runtime.status();
+                    if let Some(status) = runtime.status() {
+                        self.status = status;
+                    }
                 }
             }
             Message::Quit => return iced::exit(),

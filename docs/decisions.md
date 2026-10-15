@@ -664,3 +664,48 @@ Publish the M5.5 undo/report/Week memory follow-ups and large-history reporting
 fixes as v0.2.2. Reuse the existing three-platform CI and tag-triggered release
 workflow; archives contain both desktop and CLI executables. Keep synthetic
 measurement limits and remaining real-platform checks in the release notes.
+
+## 2026-10-15 — M7 responsive history reads, export replacement and Week grid
+
+Desktop reports and JSON export use Shared's complete event prefixes, releasing
+storage between reads and aggregating outside the mutex. Reuse core archive
+clipping and Report::calculate, merge spanning IDs/adjacent report intervals and
+intern repeated report labels. Reject a changed metadata/external-writer revision
+rather than exporting mixed edits. This remains a live read, not a database-wide
+snapshot: ordinary tracker heartbeats may extend the live tail between prefixes.
+The GUI reads status with try_lock and retains its previous status during
+contention. macOS sampling likewise uses a nonblocking status snapshot before
+calling its existing main-thread watcher. Preserve the control/storage lock order
+and tracker pause/lifecycle synchronization.
+
+Use the already-installed tempfile crate directly in the app. Write and sync a
+unique temporary file beside the selected destination, then persist it over the
+confirmed target. A failed write/replacement leaves the old destination intact
+and removes the temporary file. Platform save dialogs still own overwrite consent.
+
+Keep legacy AFK's global first-computer cutoff, already used by the Day runtime,
+core reports and archives. Remove empty/reversed Week intervals before classifying
+them. Week refresh computes its dates locally and preserves Reports' custom range.
+
+Week uses one cached canvas with a common local wall-clock axis, native date
+buttons and colored tag legend controls. Cache daily clock extents and use slices
+of the sorted report for hover queries. Keep bounded elapsed-minute state bands;
+map them through real local-hour boundaries for the shared grid. Missing DST
+hours remain empty; repeated wall hours occupy the same column. Exact UTC
+intervals, real durations and daily totals remain authoritative. The overview's
+elapsed-time axis uses real local-hour timestamps, including missing/repeated
+hours, instead of dividing a DST day into 24 equal durations.
+
+Crop Week to whole hours around observed active intervals and today's current
+time; empty weeks retain 00–24. Highlight today, draw its current-time marker and
+leave future time blank. Hover merges contiguous intervals of the same tag for
+the tooltip and highlights that tag throughout the week. Native legend buttons
+retain keyboard access to the same highlight; date buttons open Day. Compare
+active-time totals with small bars scaled against the week's busiest day.
+
+## 2026-10-15 — v0.2.3 Week and responsiveness release
+
+Publish the M7 Week redesign and report/export correctness fixes as v0.2.3.
+Reuse the existing tag-triggered, three-platform CI/release workflow. Keep its
+build gating and package layout unchanged; record behavior, local validation
+and remaining platform checks in docs/releases/v0.2.3.md.

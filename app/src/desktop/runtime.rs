@@ -146,11 +146,24 @@ impl Runtime {
     }
     #[cfg(target_os = "macos")]
     pub fn pulse(&mut self) {
-        let sample = self.sampler.sample(&self.shared);
+        let Some((status, paused)) = self
+            .shared
+            .control
+            .try_lock()
+            .ok()
+            .map(|control| (control.status.clone(), control.paused))
+        else {
+            return;
+        };
+        let sample = self.sampler.sample(&status, paused);
         let _ = self.sender.try_send((now_ms(), sample));
     }
-    pub fn status(&self) -> draugr_time_daemon::Status {
-        self.shared.status()
+    pub fn status(&self) -> Option<draugr_time_daemon::Status> {
+        self.shared
+            .control
+            .try_lock()
+            .ok()
+            .map(|control| control.status.clone())
     }
     pub fn pause(&self, duration: Option<i64>) -> Result<(), String> {
         self.shared.pause(now_ms(), duration)
@@ -284,18 +297,11 @@ impl Sampler {
             retry: Instant::now(),
         }
     }
-    fn sample(&mut self, shared: &Shared) -> MockWatcher {
+    fn sample(&mut self, status: &draugr_time_daemon::Status, paused: bool) -> MockWatcher {
         let now = now_ms();
-        let paused = {
-            let control = shared.control.lock().unwrap();
-            control.status.computer.machine != "awake"
-                || control.status.computer.locked == Some(true)
-                || control.paused
-                    && !control
-                        .status
-                        .paused_until
-                        .is_some_and(|until| until <= now)
-        };
+        let paused = status.computer.machine != "awake"
+            || status.computer.locked == Some(true)
+            || paused && !status.paused_until.is_some_and(|until| until <= now);
         if paused {
             MockWatcher {
                 window: Err(WatcherError::Platform("Paused".into())),
@@ -360,7 +366,11 @@ fn spawn_worker(
             let tick_started = Instant::now();
             #[cfg(not(target_os = "macos"))]
             let (now, sample) = {
-                let sample = sampler.sample(&shared);
+                let (status, paused) = {
+                    let control = shared.control.lock().unwrap();
+                    (control.status.clone(), control.paused)
+                };
+                let sample = sampler.sample(&status, paused);
                 (now_ms(), sample)
             };
             #[cfg(target_os = "macos")]
@@ -496,5 +506,30 @@ mod memory_tests {
         assert_eq!(metadata.ranges.len(), 1);
         assert_eq!(metadata.ranges[0].start_ts, 100);
         assert_eq!(metadata.recent.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod contention_tests {
+    use super::*;
+    #[test]
+    fn sampler_obeys_paused_snapshot_even_when_status_has_an_error() {
+        let mut status = draugr_time_daemon::Status::default();
+        status.computer.machine = "awake".into();
+        status.computer.recording = "paused".into();
+        status.state = "error".into();
+        let mut sampler = Sampler::new(true);
+        assert!(sampler.sample(&status, true).window.is_err());
+        // Resume clears control.paused before the next tick updates computer.recording.
+        assert!(sampler.sample(&status, false).window.unwrap().is_some());
+    }
+    #[test]
+    fn status_does_not_wait_for_tracker_control() {
+        let shared = Shared::new(Storage::open_in_memory().unwrap(), "test".into(), 300);
+        let runtime = Runtime::for_test(shared.clone());
+        let control = shared.control.lock().unwrap();
+        assert!(runtime.status().is_none());
+        drop(control);
+        assert!(runtime.status().is_some());
     }
 }

@@ -1,5 +1,6 @@
 pub mod api;
 mod computer;
+mod history;
 pub use computer::ComputerState;
 pub mod paths;
 pub mod service;
@@ -348,5 +349,37 @@ impl Tracker {
         computer::update_status(&mut control.status);
         self.last_tick = Some(now);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+    #[test]
+    fn cooperative_history_matches_storage_across_chunks_and_spanning_events() {
+        let mut db = Storage::open_in_memory().unwrap();
+        for i in 0..8300 {
+            db.record_interval("afk", &json!({"status":"active"}), i * 10 + 1, i * 10 + 9)
+                .unwrap();
+        }
+        db.record_interval("window", &json!({"app":"Editor"}), 1, 83_000)
+            .unwrap();
+        db.tag_interval("Work", "note", 1, 83_000, false).unwrap();
+        db.record_interval("computer", &json!({"machine":"awake","activity":"active","recording":"recording","window_available":true}), 82_000, 82_999).unwrap();
+        let report = db.report(1, 83_000).unwrap();
+        let archive = db.export_archive(1, 83_000).unwrap();
+        let shared = Shared::new(db, "test".into(), 300);
+        let actual = shared.report(1, 83_000).unwrap();
+        assert_eq!(actual.active_ms, report.active_ms);
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(report).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(shared.export_archive(1, 83_000).unwrap()).unwrap(),
+            serde_json::to_value(archive).unwrap()
+        );
+        assert!(shared.report(-1, 2).is_err());
+        assert!(shared.export_archive(2, 1).is_err());
     }
 }
