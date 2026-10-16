@@ -57,6 +57,21 @@ Draugr Time записывает активное приложение, заго
 
 ![Draugr Time — тёмная тема](docs/screenshots/draugr-time-dark.png)
 
+## Загрузка релизов
+
+На странице [GitHub Releases](https://github.com/hlophlopgaming/DraugrTime/releases)
+лежат архивы с бинарниками; установщиков пока нет.
+
+- **Linux / macOS:** один исполняемый файл `draugr-time`. Без аргументов
+  открывается приложение, с командой работает CLI:
+  `draugr-time report --from 2026-10-01 --to 2026-10-07`.
+- **Windows (portable-архив):** `draugr-time.exe` — приложение, а
+  `draugr-time-cli.exe` — отдельная консольная утилита, потому что GUI-программа
+  в Windows не может надёжно печатать в терминал.
+
+Список команд: `draugr-time --help` (на Windows — `draugr-time-cli --help`);
+примеры — в [руководстве M7](docs/m7.md).
+
 ## Сборка и запуск
 
 Установите стабильный Rust. На Linux нужны пакеты разработки librsvg и libxkbcommon-x11,

@@ -721,3 +721,19 @@ and repeated hashing without changing report, UI, API or CLI output. Preserve
 arbitrary input order and overlapping events with the existing `(id, index)`
 sets. Criterion results and the frozen original-sweep correctness oracle are
 recorded in BENCHMARKS.md; Criterion is development-only.
+
+## 2026-10-16 — CLI inside the desktop executable on Linux and macOS
+
+On Linux and macOS, `draugr-time` dispatches to the CLI when its first argument
+(optionally after `--data-dir FOLDER`) is `status`, `report`, `export`, `import`,
+`help`, `--help` or `-h`. Only the first argument decides, so desktop flags such as
+`--autostart --minimized` and the CI test modes still open the window. The CLI path
+returns before Iced, watchers, tray, autostart or the single-instance lock are
+touched, so it works headless and while the desktop app is running.
+
+Windows keeps two executables: the release GUI binary uses the `windows`
+subsystem and has no console, and attaching to the parent console breaks piping,
+exit codes and the shell prompt. The Windows release is a portable zip containing
+`draugr-time.exe` and `draugr-time-cli.exe`; Linux and macOS archives contain only
+`draugr-time`. `draugr-time-cli` is still built on every platform so existing
+scripts keep working from source builds.

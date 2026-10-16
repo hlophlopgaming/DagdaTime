@@ -1,6 +1,13 @@
 use std::{fs, process::Command};
+const CLI: &str = env!("CARGO_BIN_EXE_draugr-time-cli");
+/// On Linux and macOS the desktop executable also runs every CLI command.
+#[cfg(not(windows))]
+const DESKTOP: &str = env!("CARGO_BIN_EXE_draugr-time");
 fn command(dir: &std::path::Path) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_draugr-time-cli"));
+    command_with(CLI, dir)
+}
+fn command_with(binary: &str, dir: &std::path::Path) -> Command {
+    let mut c = Command::new(binary);
     c.env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .arg("--data-dir")
@@ -9,7 +16,32 @@ fn command(dir: &std::path::Path) -> Command {
 }
 #[test]
 fn cli_headless_help_report_export_import_and_errors() {
-    let root = std::env::temp_dir().join(format!("draugr-cli-test-{}", std::process::id()));
+    headless_scenario(CLI, "cli");
+}
+#[cfg(not(windows))]
+#[test]
+fn desktop_binary_runs_cli_commands_headless() {
+    headless_scenario(DESKTOP, "desktop");
+}
+#[cfg(not(windows))]
+#[test]
+fn desktop_binary_help_is_cli_help_and_never_opens_a_window() {
+    for args in [&["--help"][..], &["-h"], &["help"]] {
+        let output = Command::new(DESKTOP)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains("report --from START --to END"), "{text}");
+        assert!(text.contains("draugr-time [--data-dir FOLDER] COMMAND"));
+    }
+}
+fn headless_scenario(binary: &str, label: &str) {
+    let command = |dir: &std::path::Path| command_with(binary, dir);
+    let root = std::env::temp_dir().join(format!("draugr-cli-test-{label}-{}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let source = root.join("source");
     fs::create_dir_all(&source).unwrap();

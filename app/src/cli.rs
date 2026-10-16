@@ -7,12 +7,43 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
-const HELP:&str="Draugr Time CLI (local, no graphical session required)\n\nUsage: draugr-time-cli [--data-dir FOLDER] COMMAND [OPTIONS]\n  status [--json]                         Live localhost tracker status\n  report --from START --to END            Active-time report\n    [--group tag|application|document] [--tag ID] [--json|--format csv|json|text]\n  export --from START --to END [--format json|csv] [--group tag|application|document]\n  import FILE                            Import Draugr JSON or ActivityWatch dump\n\nSTART/END: Unix UTC milliseconds (exclusive end), or YYYY-MM-DD local dates\n(inclusive end date). JSON export is a restorable archive; CSV is a report.\nOutput goes to stdout; errors to stderr with nonzero exit status.\n";
+const HELP:&str="Draugr Time CLI (local, no graphical session required)\n\nUsage: draugr-time-cli [--data-dir FOLDER] COMMAND [OPTIONS]\n       draugr-time [--data-dir FOLDER] COMMAND [OPTIONS]   (Linux and macOS)\n  status [--json]                         Live localhost tracker status\n  report --from START --to END            Active-time report\n    [--group tag|application|document] [--tag ID] [--json|--format csv|json|text]\n  export --from START --to END [--format json|csv] [--group tag|application|document]\n  import FILE                            Import Draugr JSON or ActivityWatch dump\n\nSTART/END: Unix UTC milliseconds (exclusive end), or YYYY-MM-DD local dates\n(inclusive end date). JSON export is a restorable archive; CSV is a report.\nOutput goes to stdout; errors to stderr with nonzero exit status.\n";
+const COMMANDS: [&str; 4] = ["status", "report", "export", "import"];
+/// Whether desktop arguments ask for a CLI command instead of the window.
+///
+/// Only the first argument decides, optionally after `--data-dir FOLDER`,
+/// so desktop flags such as `--minimized` or `--smoke-test` still open the UI.
+#[cfg_attr(windows, allow(dead_code))]
+pub fn is_invocation(args: &[String]) -> bool {
+    let first = match args.first().map(String::as_str) {
+        Some("--data-dir") => args.get(2),
+        _ => args.first(),
+    };
+    first.is_some_and(|arg| {
+        COMMANDS.contains(&arg.as_str()) || ["help", "--help", "-h"].contains(&arg.as_str())
+    })
+}
+/// Runs the CLI, writing output to stdout and errors to stderr; returns the exit code.
+pub fn main(args: Vec<String>) -> i32 {
+    match run(args) {
+        Ok(output) => {
+            println!("{output}");
+            // The caller exits immediately; make sure piped output is complete.
+            let _ = std::io::stdout().flush();
+            0
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    }
+}
 fn error(message: &str) -> String {
     message.into()
 }
 pub fn run(args: Vec<String>) -> Result<String, String> {
-    if args.iter().any(|a| a == "--help" || a == "-h") {
+    if args.iter().any(|a| a == "--help" || a == "-h") || args.first().is_some_and(|a| a == "help")
+    {
         return Ok(HELP.into());
     }
     let mut options = HashMap::new();
@@ -50,7 +81,7 @@ pub fn run(args: Vec<String>) -> Result<String, String> {
     let command = *positional
         .first()
         .ok_or_else(|| error("expected a command; use --help"))?;
-    if !["status", "report", "export", "import"].contains(&command) {
+    if !COMMANDS.contains(&command) {
         return Err(format!("unknown command {command}"));
     }
     if positional.len() != if command == "import" { 2 } else { 1 } {
@@ -224,4 +255,43 @@ fn live_status(directory: &std::path::Path) -> Result<serde_json::Value, String>
         return Err(error("local status request failed"));
     }
     serde_json::from_str(body).map_err(|e| e.to_string())
+}
+#[cfg(test)]
+mod invocation_tests {
+    use super::is_invocation;
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+    #[test]
+    fn commands_and_help_select_the_cli() {
+        for values in [
+            &["status"][..],
+            &["report", "--from", "2026-10-01", "--to", "2026-10-07"],
+            &["export", "--from", "0", "--to", "1"],
+            &["import", "file.json"],
+            &["--data-dir", "/tmp/x", "report"],
+            &["help"],
+            &["--help"],
+            &["-h"],
+        ] {
+            assert!(is_invocation(&args(values)), "{values:?}");
+        }
+    }
+    #[test]
+    fn desktop_launches_keep_the_window() {
+        for values in [
+            &[][..],
+            &["--minimized"],
+            &["--autostart", "--minimized"],
+            &["--smoke-test"],
+            &["--runtime-test"],
+            &["--lifecycle-test"],
+            &["--autostart-test"],
+            &["--benchmark"],
+            &["--data-dir", "/tmp/x"],
+            &["--minimized", "report"],
+        ] {
+            assert!(!is_invocation(&args(values)), "{values:?}");
+        }
+    }
 }

@@ -40,6 +40,7 @@ jobs:
       - name: Launch desktop (Linux)
         if: runner.os == 'Linux'
         run: |
+          env -u DISPLAY -u WAYLAND_DISPLAY target/release/draugr-time --help
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/draugr-time --smoke-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-runtime" xvfb-run -a target/release/draugr-time --runtime-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" xvfb-run -a target/release/draugr-time --lifecycle-test
@@ -47,6 +48,7 @@ jobs:
       - name: Launch desktop (macOS)
         if: runner.os == 'macOS'
         run: |
+          target/release/draugr-time --help
           target/release/draugr-time --smoke-test
           DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-runtime" target/release/draugr-time --runtime-test
           DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" target/release/draugr-time --lifecycle-test
@@ -86,11 +88,13 @@ jobs:
       - name: Package desktop binaries
         run: |
           mkdir -p release
-          chmod +x artifacts/Draugr-Time-{Linux,macOS}/draugr-time artifacts/Draugr-Time-{Linux,macOS}/draugr-time-cli
-          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time draugr-time-cli
-          tar -C artifacts/Draugr-Time-macOS -czf release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz draugr-time draugr-time-cli
+          # Linux and macOS: one executable runs the window and the CLI commands.
+          chmod +x artifacts/Draugr-Time-{Linux,macOS}/draugr-time
+          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time
+          tar -C artifacts/Draugr-Time-macOS -czf release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz draugr-time
+          # Windows: portable archive with the GUI and a separate console executable.
           cd artifacts/Draugr-Time-Windows
-          zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe draugr-time-cli.exe
+          zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64-portable.zip" draugr-time.exe draugr-time-cli.exe
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

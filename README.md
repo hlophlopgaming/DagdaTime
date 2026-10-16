@@ -53,6 +53,21 @@ These screenshots show generated sample history, not personal activity.
 
 ![Draugr Time — dark theme](docs/screenshots/draugr-time-dark.png)
 
+## Release downloads
+
+[GitHub Releases](https://github.com/hlophlopgaming/DraugrTime/releases) provide
+binary archives; installers are not available yet.
+
+- **Linux / macOS:** a single `draugr-time` executable. Run it without arguments
+  for the desktop app, or with a command for the CLI:
+  `draugr-time report --from 2026-10-01 --to 2026-10-07`.
+- **Windows (portable archive):** `draugr-time.exe` is the desktop app and
+  `draugr-time-cli.exe` is the separate console tool, because a Windows GUI
+  executable cannot print to the terminal reliably.
+
+Run `draugr-time --help` (or `draugr-time-cli --help` on Windows) for all
+commands; see the [M7 guide](docs/m7.md) for examples.
+
 ## Build and run
 
 Install stable Rust. Linux needs librsvg and libxkbcommon-x11 development packages,
