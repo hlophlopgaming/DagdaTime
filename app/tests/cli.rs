@@ -3,9 +3,6 @@ const CLI: &str = env!("CARGO_BIN_EXE_draugr-time-cli");
 /// On Linux and macOS the desktop executable also runs every CLI command.
 #[cfg(not(windows))]
 const DESKTOP: &str = env!("CARGO_BIN_EXE_draugr-time");
-fn command(dir: &std::path::Path) -> Command {
-    command_with(CLI, dir)
-}
 fn command_with(binary: &str, dir: &std::path::Path) -> Command {
     let mut c = Command::new(binary);
     c.env_remove("DISPLAY")
@@ -180,7 +177,7 @@ fn local_date_reports_honor_short_and_long_dst_days() {
             start + hours * 3_600_000,
         )
         .unwrap();
-        let output = command(&root)
+        let output = command_with(CLI, &root)
             .env("TZ", "Europe/Berlin")
             .args(["report", "--from", date, "--to", date, "--json"])
             .output()

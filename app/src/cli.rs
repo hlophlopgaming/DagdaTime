@@ -13,7 +13,8 @@ const COMMANDS: [&str; 4] = ["status", "report", "export", "import"];
 ///
 /// Only the first argument decides, optionally after `--data-dir FOLDER`,
 /// so desktop flags such as `--minimized` or `--smoke-test` still open the UI.
-#[cfg_attr(windows, allow(dead_code))]
+// Shared with draugr-time-cli via #[path], which never calls this.
+#[allow(dead_code)]
 pub fn is_invocation(args: &[String]) -> bool {
     let first = match args.first().map(String::as_str) {
         Some("--data-dir") => args.get(2),
