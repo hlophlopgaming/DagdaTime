@@ -27,7 +27,7 @@ then shows them on a daily timeline. It is a free, GPL-3.0 project inspired by
 ManicTime's workflow. Your history stays on your computer.
 
 > **Early development:** Day/Overview/Week, tags, rules, monthly reports,
-> CSV/JSON and ActivityWatch import work. Browser URL collection remains planned.
+> CSV/JSON and ActivityWatch import work. Release 1.0 is next.
 
 ## What works
 
@@ -89,8 +89,10 @@ and [desktop usage](docs/desktop.md) for settings and platform notes.
 - [x] **M5.5:** GTK-free Linux tray, day-data cleanup and lower desktop memory usage.
 - [x] **M6:** automatic tagging rules with preview/history undo; eight interface languages, OS detection, saved selection and English fallback. Platform/translation review: [M6 verification](docs/m6.md).
 - [x] **M7:** Week view, reports, CSV/JSON export and ActivityWatch import.
-- [ ] **M9:** Firefox/Chromium extension for browser URLs.
-- [ ] **M10:** onboarding, privacy settings, backups and installers.
+- [x] ~~**M9:** browser extension~~ — dropped: window titles already cover browser pages.
+- [ ] **M10 — 1.0:** app icon everywhere, built-in CLI on Linux/macOS, first-run onboarding, minimal privacy settings.
+- [ ] **M11 — 1.1:** installers: Windows installer, AppImage, Flatpak, macOS DMG.
+- [ ] **M12:** design, backups, title masking, notes, shortcuts, file paths, Git branch detection.
 
 Details: [PLAN.md](PLAN.md) · [Architecture decisions](docs/decisions.md).
 

@@ -204,7 +204,7 @@ The desktop app is the product. Background tracking is embedded in the desktop p
 - *About*: version, license, link to the repo.
 
 **9. First-run onboarding (3–4 steps)**
-- What is tracked and that it never leaves the machine → grant permissions (macOS Accessibility; on Wayland: install the GNOME extension / KWin script or explain wlroots) → optional browser extension → done, open Day view.
+- What is tracked and that it never leaves the machine → grant permissions (macOS Accessibility; on Wayland: install the GNOME extension / KWin script or explain wlroots) → done, open Day view.
 
 **10. System tray / menu bar**
 - Icon shows state: tracking / paused / away / error.
@@ -324,18 +324,36 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 ### M8 — Reserved
 - Wayland scope and acceptance criteria moved to M3 at the user's request.
 
-### M9 — Browser extension
-- Firefox + Chromium; sends active tab URL/title to the daemon.
-- ✅ URLs appear on the Documents track; extension state is shown in Settings → Status & permissions.
+### M9 — Browser extension (dropped)
+- Not needed: the active browser window title already names the page on the Documents track.
+- Firefox/Chromium extensions moved to **Later**; revisit only if there is a real request.
 
-### M10 — Polish & distribution
-- First-run onboarding (§5.9).
-- Settings completed (§5.8): autostart, privacy controls (excluded apps, title masking, delete range), backups.
-- Installers: MSI (Windows), DMG (macOS), AppImage/Flatpak (Linux).
-- ✅ Fresh install on each OS goes through onboarding to a working Day view without touching a terminal.
+### M10 — Release 1.0
+- **Application icon everywhere:** embedded in the Windows `.exe`; `.desktop` file and hicolor icons on Linux; `.icns` on macOS.
+- **CLI:** built into `draugr-time` on Linux/macOS (`draugr-time report ...`); separate `draugr-time-cli.exe` on Windows.
+- **First-run onboarding (1–2 screens, §5.9):** what is recorded and where it is stored (nothing leaves the machine); permission hints (macOS Accessibility, GNOME/KDE Wayland bridge); "Start recording".
+- **Minimal privacy settings (§5.8):** excluded applications (never recorded), delete data for a selected range, recording schedule (e.g. weekdays 9–19).
+- **README:** drop "Early development", describe downloads and usage.
+- ✅ First launch from a release archive on each OS goes through onboarding to a working Day view; the app shows its icon in the window, tray and file manager/app menu.
+
+### M11 — Release 1.1: installers
+- Windows: installer (Inno Setup or MSI) that adds `draugr-time-cli` to PATH, plus the portable zip.
+- Linux: AppImage and Flatpak.
+- macOS: `.app` bundle in a DMG.
+- Release CI builds and attaches every installer.
+- ✅ Fresh install on each OS goes through onboarding to a working Day view without touching a terminal; uninstall leaves history in place unless the user deletes it.
+
+### M12 — After 1.1 (no fixed dates)
+- Design improvements.
+- Backups: back up now and automatic backups.
+- Title masking for selected applications.
+- Notes on tagged ranges.
+- Keyboard shortcuts, "tag the last N minutes", compact mini window.
+- Documents: full file path where the OS/application exposes it.
+- Git repository and branch detection for terminals and IDEs.
 
 ### Later
-Screenshots track (as in ManicTime), DB encryption, multi-device sync (CRDT or self-hosted server).
+Screenshots track (as in ManicTime), DB encryption, multi-device sync (CRDT or self-hosted server), MCP server on top of the local API, browser extensions (former M9).
 
 ---
 

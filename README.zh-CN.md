@@ -71,8 +71,10 @@ Draugr Time 的事件格式与 ActivityWatch 兼容，你可以把历史数据�
 - [ ] **M5** 标签：在时间轴上选择时间段 → 分配项目
 - [x] **M6** 自动标签规则、预览与撤销；八种界面语言 — [M6](docs/m6.md)
 - [x] **M7** 报告、CSV/JSON 导出、从 ActivityWatch 导入
-- [ ] **M9** 用于记录 URL 的浏览器扩展（Firefox、Chromium）
-- [ ] **M10** 首次使用引导、隐私设置、备份和安装包 (MSI, DMG, AppImage/Flatpak)
+- [x] ~~**M9** 浏览器扩展~~ — 已取消：窗口标题已能记录浏览器页面
+- [ ] **M10 — 1.0** 全平台应用图标、Linux/macOS 内置 CLI、首次使用引导、基础隐私设置
+- [ ] **M11 — 1.1** 安装包：Windows 安装程序、AppImage、Flatpak、macOS DMG
+- [ ] **M12** 设计改进、备份、标题遮盖、备注、快捷键、文件路径、Git 分支识别
 - [ ] **以后** 截图、数据库加密、多设备同步
 
 详细信息：[PLAN.md](PLAN.md) · 架构决策：[docs/decisions.md](docs/decisions.md)

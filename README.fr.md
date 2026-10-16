@@ -71,8 +71,10 @@ Le format d'événements de Draugr Time est compatible avec ActivityWatch : vous
 - [ ] **M5** Étiquettes : sélectionner une plage sur la timeline → attribuer un projet
 - [x] **M6** Règles automatiques, aperçu et annulation ; huit langues d’interface — [M6](docs/m6.md)
 - [x] **M7** Rapports, export CSV/JSON, import depuis ActivityWatch
-- [ ] **M9** Extension de navigateur pour les URL (Firefox, Chromium)
-- [ ] **M10** Premier lancement, confidentialité, sauvegardes et installateurs (MSI, DMG, AppImage/Flatpak)
+- [x] ~~**M9** Extension de navigateur~~ — abandonnée : les titres de fenêtre couvrent déjà les pages
+- [ ] **M10 — 1.0** Icône partout, CLI intégrée sous Linux/macOS, premier lancement, confidentialité de base
+- [ ] **M11 — 1.1** Installateurs : Windows, AppImage, Flatpak, DMG macOS
+- [ ] **M12** Design, sauvegardes, masquage des titres, notes, raccourcis, chemins de fichiers, branche Git
 - [ ] **Plus tard** Captures d'écran, chiffrement de la base, synchronisation entre appareils
 
 Détails : [PLAN.md](PLAN.md) · Décisions d'architecture : [docs/decisions.md](docs/decisions.md)
