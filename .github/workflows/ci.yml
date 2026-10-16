@@ -43,6 +43,7 @@ jobs:
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/draugr-time --smoke-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-runtime" xvfb-run -a target/release/draugr-time --runtime-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" xvfb-run -a target/release/draugr-time --lifecycle-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-onboarding" xvfb-run -a target/release/draugr-time --onboarding-test
           XDG_CONFIG_HOME="$RUNNER_TEMP/draugr-time-autostart" target/release/draugr-time --autostart-test
       - name: Launch desktop (macOS)
         if: runner.os == 'macOS'
@@ -50,17 +51,25 @@ jobs:
           target/release/draugr-time --smoke-test
           DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-runtime" target/release/draugr-time --runtime-test
           DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" target/release/draugr-time --lifecycle-test
+          DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-onboarding" target/release/draugr-time --onboarding-test
           target/release/draugr-time --autostart-test
       - name: Launch desktop (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          foreach ($mode in @('--smoke-test','--runtime-test','--lifecycle-test','--autostart-test')) {
+          foreach ($mode in @('--smoke-test','--runtime-test','--lifecycle-test','--onboarding-test','--autostart-test')) {
             $name = $mode.TrimStart('-')
             $env:DRAUGR_TIME_DATA_DIR = Join-Path $env:RUNNER_TEMP "draugr-time-$name"
             $process = Start-Process target/release/draugr-time.exe -ArgumentList $mode -PassThru -Wait
             if ($process.ExitCode -ne 0) { exit $process.ExitCode }
           }
+      - name: Assemble macOS application bundle
+        if: runner.os == 'macOS'
+        run: |
+          python scripts/package_macos.py
+          codesign --force --deep --sign - "target/release/Draugr Time.app"
+          "target/release/Draugr Time.app/Contents/MacOS/draugr-time" --smoke-test
+          tar -C target/release -czf target/release/Draugr-Time-macOS.tar.gz "Draugr Time.app" draugr-time
       - name: Upload desktop and CLI executables
         uses: actions/upload-artifact@v4
         with:
@@ -70,6 +79,7 @@ jobs:
             target/release/draugr-time.exe
             target/release/draugr-time-cli
             target/release/draugr-time-cli.exe
+            target/release/Draugr-Time-macOS.tar.gz
           if-no-files-found: error
 
   release:
@@ -79,6 +89,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: Draugr-Time-*
@@ -87,11 +98,14 @@ jobs:
         run: |
           mkdir -p release
           chmod +x artifacts/Draugr-Time-{Linux,macOS}/draugr-time artifacts/Draugr-Time-{Linux,macOS}/draugr-time-cli
-          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time draugr-time-cli
-          tar -C artifacts/Draugr-Time-macOS -czf release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz draugr-time draugr-time-cli
+          cp packaging/org.draugrtime.app.desktop artifacts/Draugr-Time-Linux/
+          mkdir -p artifacts/Draugr-Time-Linux/icons/hicolor/128x128/apps
+          cp logo/blackDraugr128.png artifacts/Draugr-Time-Linux/icons/hicolor/128x128/apps/org.draugrtime.app.png
+          tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time org.draugrtime.app.desktop icons
+          cp artifacts/Draugr-Time-macOS/Draugr-Time-macOS.tar.gz release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz
           cd artifacts/Draugr-Time-Windows
           zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe draugr-time-cli.exe
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --repo "${{ github.repository }}" --title "Draugr Time $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" release/* --repo "${{ github.repository }}" --title "Draugr Time $GITHUB_REF_NAME" --notes-file docs/releases/${GITHUB_REF_NAME}.md

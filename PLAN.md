@@ -336,7 +336,10 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 - **README:** drop "Early development", describe downloads and usage.
 - ✅ First launch from a release archive on each OS goes through onboarding to a working Day view; the app shows its icon in the window, tray and file manager/app menu.
 
+- Implemented: [M10 behavior, verification and real-OS checks](docs/m10.md).
+
 ### M11 — Release 1.1: installers
+- In the app’s About screen, add a clickable link to the GitHub repository and credit its creator, **hlophlopgaming**, with a link to the GitHub profile.
 - Windows: installer (Inno Setup or MSI) that adds `draugr-time-cli` to PATH, plus the portable zip.
 - Linux: AppImage and Flatpak.
 - macOS: `.app` bundle in a DMG.

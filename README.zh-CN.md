@@ -29,9 +29,9 @@
 
 ---
 
-> [!IMPORTANT]
-> **Draugr Time 仍处于早期开发阶段。** 原生 Iced 界面已支持活动跟踪和每日时间线。标签编辑和规则也已实现，日概览、月报告、CSV/JSON导出和ActivityWatch导入现已可用，详见[路线图](#路线图)。
-> ⭐ 点个 **Star** 或开启 👀 **Watch**，关注进展并在首个版本发布时收到通知。
+
+
+1.0 下载：[Releases](https://github.com/hlophlopgaming/DraugrTime/releases)。解压后，macOS 打开 `Draugr Time.app`，Windows/Linux 运行 `draugr-time`。Linux/macOS 命令行：`draugr-time --help`；Windows：`draugr-time-cli.exe`。[首次使用](docs/m10.md)。
 
 ## 为什么选择 Draugr Time？
 
@@ -72,7 +72,7 @@ Draugr Time 的事件格式与 ActivityWatch 兼容，你可以把历史数据�
 - [x] **M6** 自动标签规则、预览与撤销；八种界面语言 — [M6](docs/m6.md)
 - [x] **M7** 报告、CSV/JSON 导出、从 ActivityWatch 导入
 - [x] ~~**M9** 浏览器扩展~~ — 已取消：窗口标题已能记录浏览器页面
-- [ ] **M10 — 1.0** 全平台应用图标、Linux/macOS 内置 CLI、首次使用引导、基础隐私设置
+- [x] **M10 — 1.0** 全平台应用图标、Linux/macOS 内置 CLI、首次使用引导、基础隐私设置
 - [ ] **M11 — 1.1** 安装包：Windows 安装程序、AppImage、Flatpak、macOS DMG
 - [ ] **M12** 设计改进、备份、标题遮盖、备注、快捷键、文件路径、Git 分支识别
 - [ ] **以后** 截图、数据库加密、多设备同步

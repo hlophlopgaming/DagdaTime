@@ -22,7 +22,7 @@ class SkeletonTests(unittest.TestCase):
         self.assertNotIn('tauri', manifest['dependencies'])
         self.assertFalse((ROOT / 'app/tauri.conf.json').exists())
         self.assertFalse((ROOT / 'app/frontend').exists())
-        self.assertFalse((ROOT / 'app/build.rs').exists())
+        self.assertIn('winresource', (ROOT / 'app/build.rs').read_text())
         lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
         self.assertFalse(any(package['name'].startswith(('tauri', 'wry', 'webkit')) for package in lock['package']))
         main = (ROOT / 'app/src/main.rs').read_text()

@@ -1,6 +1,7 @@
 pub mod api;
 mod computer;
 mod history;
+pub mod preferences;
 pub use computer::ComputerState;
 pub mod paths;
 pub mod service;
@@ -55,6 +56,7 @@ pub struct Shared {
     pub control: Arc<Mutex<Control>>,
     pub token: Arc<String>,
     pub idle_threshold: u64,
+    pub preferences: Arc<Mutex<preferences::Preferences>>,
     shutdown_signal: Arc<tokio::sync::Notify>,
 }
 
@@ -86,6 +88,7 @@ impl Shared {
             })),
             token: Arc::new(token),
             idle_threshold,
+            preferences: Arc::new(Mutex::new(preferences::Preferences::default())),
             shutdown_signal: Arc::new(tokio::sync::Notify::new()),
         }
     }
@@ -210,7 +213,25 @@ impl Tracker {
             self.had_idle = false;
             self.pause_generation = generation;
         }
-        let blocked = control.paused
+        use chrono::{Datelike, Timelike};
+        let scheduled_pause = {
+            let preferences = self.shared.preferences.lock().unwrap();
+            preferences.schedule.as_ref().is_some_and(|schedule| {
+                chrono::DateTime::from_timestamp_millis(now).is_none_or(|date| {
+                    let local = date.with_timezone(&chrono::Local);
+                    !schedule.allows(
+                        local.weekday().number_from_monday(),
+                        local.hour() * 60 + local.minute(),
+                    )
+                })
+            })
+        };
+        if scheduled_pause && !control.paused {
+            control.status.computer.recording = "paused".into();
+            control.status.computer.reason = Some("Outside recording schedule".into());
+        }
+        let blocked = scheduled_pause
+            || control.paused
             || control.status.computer.machine != "awake"
             || control.status.computer.locked == Some(true);
         if blocked {
@@ -243,6 +264,9 @@ impl Tracker {
         } else {
             window.active_window()
         };
+        let observed_window = window.as_ref().is_ok_and(|w| w.is_some());
+        let window = window.map(|window| self.shared.preferences.lock().unwrap().filter(window));
+        let excluded = observed_window && window.as_ref().is_ok_and(|w| w.is_none());
         let mut control = self.shared.control.lock().unwrap();
         if control.shutdown || control.paused || control.pause_generation != generation {
             return Ok(());
@@ -318,7 +342,7 @@ impl Tracker {
         if !away {
             match &window {
                 Err(error) => failures.push(format!("window: {error}")),
-                Ok(None) => failures.push("window: no focused window reported".into()),
+                Ok(None) if !excluded => failures.push("window: no focused window reported".into()),
                 _ => {}
             }
         }

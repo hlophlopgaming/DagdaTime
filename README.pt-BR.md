@@ -29,9 +29,9 @@ Veja em uma linha do tempo para onde foi o seu dia, atribua tempo a projetos e t
 
 ---
 
-> [!IMPORTANT]
-> **O Draugr Time está no início do desenvolvimento.** O rastreamento e a linha do tempo diária já funcionam com a interface nativa Iced. As tags e as regras também funcionam; a visão do dia, relatórios mensais, CSV/JSON e importação do ActivityWatch estão disponíveis; veja o [roadmap](#roadmap).
-> ⭐ Dê uma **estrela** ou ative o 👀 **Watch** para acompanhar o progresso e saber do primeiro lançamento.
+
+
+Arquivos 1.0: [Releases](https://github.com/hlophlopgaming/DraugrTime/releases). Extraia e abra `Draugr Time.app` no macOS ou `draugr-time` no Windows/Linux. CLI Linux/macOS: `draugr-time --help`; Windows: `draugr-time-cli.exe`. [Primeiro uso](docs/m10.md).
 
 ## Por que o Draugr Time?
 
@@ -72,7 +72,7 @@ O formato de eventos do Draugr Time é compatível com o ActivityWatch, então v
 - [x] **M6** Regras automáticas, prévia e desfazer; oito idiomas da interface — [M6](docs/m6.md)
 - [x] **M7** Relatórios, exportação CSV/JSON, importação do ActivityWatch
 - [x] ~~**M9** Extensão de navegador~~ — descartada: os títulos das janelas já cobrem as páginas
-- [ ] **M10 — 1.0** Ícone do app em todo lugar, CLI integrada no Linux/macOS, primeiro uso, privacidade básica
+- [x] **M10 — 1.0** Ícone do app em todo lugar, CLI integrada no Linux/macOS, primeiro uso, privacidade básica
 - [ ] **M11 — 1.1** Instaladores: Windows, AppImage, Flatpak, DMG para macOS
 - [ ] **M12** Design, backups, ocultar títulos, notas, atalhos, caminhos de arquivo, branch do Git
 - [ ] **Depois** Capturas de tela, criptografia do banco de dados, sincronização entre dispositivos

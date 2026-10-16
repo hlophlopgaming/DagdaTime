@@ -181,6 +181,7 @@ fn optimized_sweep_matches_original_on_diverse_histories() {
                 });
             }
             ranges.push(TagRange {
+                precedence_id: None,
                 id: (i * 17) % 73,
                 tag_id: 1 + i % 15,
                 start_ts: start,

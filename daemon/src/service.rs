@@ -24,6 +24,8 @@ pub fn serve(idle_threshold: u64) -> Result<(), Box<dyn Error>> {
     let token = paths::token(&directory.join("api-token"))?;
     let storage = Storage::open(directory.join("activity.sqlite"))?;
     let shared = Shared::new(storage, token, idle_threshold);
+    *shared.preferences.lock().unwrap() =
+        crate::preferences::Preferences::load(&directory.join("settings.json"))?;
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, paths::PORT))?;
     listener.set_nonblocking(true)?;
     shared.begin_recording(now_ms())?;

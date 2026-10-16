@@ -1,5 +1,8 @@
 use std::{fs, process::Command};
 fn command(dir: &std::path::Path) -> Command {
+    #[cfg(not(target_os = "windows"))]
+    let mut c = Command::new(env!("CARGO_BIN_EXE_draugr-time"));
+    #[cfg(target_os = "windows")]
     let mut c = Command::new(env!("CARGO_BIN_EXE_draugr-time-cli"));
     c.env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")

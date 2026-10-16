@@ -45,6 +45,7 @@ fn overview_partitions_hierarchy_overlaps_unknown_and_untagged() {
     ];
     let ranges = vec![
         TagRange {
+            precedence_id: None,
             id: 1,
             tag_id: 1,
             start_ts: 0,
@@ -52,6 +53,7 @@ fn overview_partitions_hierarchy_overlaps_unknown_and_untagged() {
             note: None,
         },
         TagRange {
+            precedence_id: None,
             id: 2,
             tag_id: 2,
             start_ts: 10,
@@ -59,6 +61,7 @@ fn overview_partitions_hierarchy_overlaps_unknown_and_untagged() {
             note: None,
         },
         TagRange {
+            precedence_id: None,
             id: 3,
             tag_id: 3,
             start_ts: 40,

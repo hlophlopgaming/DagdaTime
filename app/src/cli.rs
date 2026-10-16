@@ -13,7 +13,11 @@ fn error(message: &str) -> String {
 }
 pub fn run(args: Vec<String>) -> Result<String, String> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        return Ok(HELP.into());
+        return Ok(if cfg!(target_os = "windows") {
+            HELP.into()
+        } else {
+            HELP.replace("draugr-time-cli", "draugr-time")
+        });
     }
     let mut options = HashMap::new();
     let mut positional = Vec::new();

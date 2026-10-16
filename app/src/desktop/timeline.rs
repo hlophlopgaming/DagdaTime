@@ -416,13 +416,25 @@ impl canvas::Program<Message> for Timeline<'_> {
                 Size::new(width, bounds.height - RULER),
                 Color::from_rgba(0.15, 0.56, 0.52, 0.18),
             );
-            overlay.stroke(
-                &Path::rectangle(
-                    Point::new(left, RULER),
-                    Size::new(width, bounds.height - RULER),
+            // Filled borders keep every pixel inside tiny-skia's damage bounds.
+            let height = (bounds.height - RULER).max(0.0);
+            let border = Color::from_rgb8(39, 143, 133);
+            let edge = width.min(1.0);
+            let cap = height.min(1.0);
+            for (position, size) in [
+                (Point::new(left, RULER), Size::new(width, cap)),
+                (
+                    Point::new(left, RULER + height - cap),
+                    Size::new(width, cap),
                 ),
-                Stroke::default().with_color(Color::from_rgb8(39, 143, 133)),
-            );
+                (Point::new(left, RULER), Size::new(edge, height)),
+                (
+                    Point::new(left + width - edge, RULER),
+                    Size::new(edge, height),
+                ),
+            ] {
+                overlay.fill_rectangle(position, size, border);
+            }
         }
         self.stats.frames.fetch_add(1, Ordering::Relaxed);
         self.stats.max_build_us.fetch_max(
@@ -455,6 +467,53 @@ pub fn canvas<'a>(program: Timeline<'a>) -> Canvas<Timeline<'a>, Message> {
 mod tests {
     use super::*;
     use iced::widget::canvas::Program;
+
+    #[test]
+    fn selection_pixels_stay_inside_renderer_damage_bounds() {
+        use iced::advanced::{graphics::geometry::Renderer as _, renderer::Headless as _};
+
+        let program = Timeline {
+            tracks: &[],
+            filtered: &[],
+            visible: &[],
+            view: Range::new(0, 240),
+            selection: Some(Range::new(50, 100)),
+            highlight: None,
+            grid_cache: &canvas::Cache::new(),
+            cache: &canvas::Cache::new(),
+            stats: &PaintStats::default(),
+            icons: &HashMap::new(),
+        };
+        let mut renderer = Renderer::new(iced::Font::DEFAULT, 16.0.into());
+        let overlay = program
+            .draw(
+                &Interaction::default(),
+                &renderer,
+                &Theme::Dark,
+                Rectangle::with_size(Size::new(240.0, 212.0)),
+                mouse::Cursor::Unavailable,
+            )
+            .pop()
+            .unwrap();
+        renderer.draw_geometry(overlay);
+        let damage: Vec<_> = renderer
+            .layers()
+            .iter()
+            .flat_map(|layer| &layer.primitives)
+            .flat_map(|item| item.as_slice())
+            .map(|primitive| primitive.visible_bounds())
+            .collect();
+        let pixels = renderer.screenshot(Size::new(240, 212), 1.0, Color::BLACK);
+        for (index, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
+            if *pixel != [0, 0, 0, 255] {
+                let point = Point::new((index % 240) as f32 + 0.5, (index / 240) as f32 + 0.5);
+                assert!(
+                    damage.iter().any(|bounds| bounds.contains(point)),
+                    "selection pixel {point:?} lies outside repaint bounds"
+                );
+            }
+        }
+    }
 
     #[test]
     fn wheel_zoom_scales_with_scroll_distance() {

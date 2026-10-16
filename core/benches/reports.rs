@@ -34,6 +34,7 @@ fn fixture(count: usize, overlapping: bool, unique: bool) -> (Vec<Event>, Vec<Ta
         });
         if i % 3 == 0 {
             ranges.push(TagRange {
+                precedence_id: None,
                 id: i as i64 + 1,
                 tag_id: 1 + i as i64 % 32,
                 start_ts: start + 100,

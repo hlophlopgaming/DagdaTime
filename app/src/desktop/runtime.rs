@@ -120,6 +120,9 @@ impl Runtime {
             token,
             300,
         );
+        *shared.preferences.lock().unwrap() =
+            draugr_time_daemon::preferences::Preferences::load(&directory.join("settings.json"))
+                .map_err(|e| e.to_string())?;
         shared
             .begin_recording(now_ms())
             .map_err(|e| e.to_string())?;

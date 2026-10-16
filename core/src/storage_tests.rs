@@ -143,7 +143,7 @@ fn reopening_applies_migrations_once_and_preserves_events() {
         .connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
     for table in ["events", "tags", "tag_ranges", "rules"] {
         reopened
             .connection
@@ -164,15 +164,15 @@ fn newer_schema_is_rejected_without_downgrading() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("future.sqlite");
     let connection = rusqlite::Connection::open(&path).unwrap();
-    connection.pragma_update(None, "user_version", 5).unwrap();
+    connection.pragma_update(None, "user_version", 6).unwrap();
     assert!(matches!(
         Storage::open(&path),
-        Err(StorageError::UnsupportedSchema(5))
+        Err(StorageError::UnsupportedSchema(6))
     ));
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
 }
 
 #[test]
@@ -464,5 +464,5 @@ fn v2_migration_preserves_tag_history_and_adds_range_index() {
         .connection
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
 }

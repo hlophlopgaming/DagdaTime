@@ -29,9 +29,9 @@
 
 ---
 
-> [!IMPORTANT]
-> **Draugr Time は開発の初期段階です。** ネイティブ Iced UI でアクティビティ記録と日別タイムラインが利用できます。タグ編集とルールも利用できます。日の概要、月間レポート、CSV/JSON、ActivityWatchのインポートが利用できます。[ロードマップ](#ロードマップ)をご覧ください。
-> ⭐ **Star** を付けるか 👀 **Watch** を有効にして、進捗と最初のリリースをチェックしてください。
+
+
+1.0のダウンロード：[Releases](https://github.com/hlophlopgaming/DraugrTime/releases)。展開後、macOSでは `Draugr Time.app`、Windows/Linuxでは `draugr-time` を起動。Linux/macOSのCLI：`draugr-time --help`。Windows：`draugr-time-cli.exe`。[初回起動](docs/m10.md)。
 
 ## なぜ Draugr Time？
 
@@ -72,7 +72,7 @@ Draugr Time のイベント形式は ActivityWatch と互換性があるため�
 - [x] **M6** 自動タグ付け、プレビュー、取り消し、8言語のUI — [M6](docs/m6.md)
 - [x] **M7** レポート、CSV/JSON エクスポート、ActivityWatch からのインポート
 - [x] ~~**M9** ブラウザ拡張機能~~ — 中止：ウィンドウタイトルでブラウザのページを記録できるため
-- [ ] **M10 — 1.0** アプリアイコン、Linux/macOS での CLI 統合、初回起動ガイド、基本的なプライバシー設定
+- [x] **M10 — 1.0** アプリアイコン、Linux/macOS での CLI 統合、初回起動ガイド、基本的なプライバシー設定
 - [ ] **M11 — 1.1** インストーラー：Windows、AppImage、Flatpak、macOS DMG
 - [ ] **M12** デザイン、バックアップ、タイトルのマスク、メモ、ショートカット、ファイルパス、Git ブランチ検出
 - [ ] **その後** スクリーンショット、データベース暗号化、複数デバイス間の同期

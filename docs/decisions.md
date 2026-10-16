@@ -721,3 +721,32 @@ and repeated hashing without changing report, UI, API or CLI output. Preserve
 arbitrary input order and overlapping events with the existing `(id, index)`
 sets. Criterion results and the frozen original-sweep correctness oracle are
 recorded in BENCHMARKS.md; Criterion is development-only.
+
+
+## 2026-10-15 — M7 overview legend and timeline scrolling
+
+Use the existing application icon handles and aligned native controls for the
+overview name/duration/percentage table. Cache the compact timeline geometry
+between redraws so scrolling does not rebuild all interval shapes. Clear the
+cache whenever the overview view is rebuilt, preserving updates to data,
+highlight, theme and date; canvas also invalidates on size changes.
+
+## 2026-10-16 — M10 release 1.0
+
+- Follow the updated upstream PLAN: M10 contains icons, built-in Unix CLI,
+  two-screen onboarding and minimal privacy. Defer installers to M11 and
+  backups/title masking to M12.
+- Keep onboarding, exclusions and schedule in atomically replaced `settings.json`
+  in the active data directory. Corrupt preferences stop tracking startup.
+- Filter excluded window observations before storage, rules and current status,
+  retaining independent active/away evidence. Delete intersecting event/tag ranges
+  transactionally, preserve outside pieces, invalidate live tails and UI undo.
+- Schedule against the local wall clock with weekday/everyday, same-day HH:MM
+  windows; persist interval timestamps as UTC milliseconds. Off-hours recording
+  is an explicit pause and never creates application time across the gap.
+- Route Unix CLI arguments before initializing the GUI; reuse the existing CLI.
+  Embed Windows resources with winresource, ship a macOS `.app` in its archive,
+  and install a user-scoped Linux desktop entry/hicolor icon on explicit request.
+- Add migration 005 and nullable `tag_ranges.precedence_id`: retained fragments
+  keep their original creation precedence instead of overtaking newer tags.
+  Reports, undo and archive import preserve this ordering; existing ranges use ID.

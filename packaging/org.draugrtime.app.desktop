@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Draugr Time
+Comment=Private local activity tracking
+Exec=draugr-time
+Icon=org.draugrtime.app
+Terminal=false
+Categories=Office;
+StartupWMClass=org.draugrtime.app

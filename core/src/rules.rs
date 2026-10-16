@@ -181,6 +181,7 @@ impl Storage {
                     params![r.tag_id, r.start_ts, r.end_ts],
                 )?;
                 inserted.push(TagRange {
+                    precedence_id: None,
                     id: self.connection.last_insert_rowid(),
                     tag_id: r.tag_id,
                     start_ts: r.start_ts,

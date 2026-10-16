@@ -149,7 +149,14 @@ impl Report {
                         _ => continue,
                     }
                 };
-                let key = (if is_tag { ranges[i].id } else { events[i].id }, i);
+                let key = (
+                    if is_tag {
+                        ranges[i].precedence_id.unwrap_or(ranges[i].id)
+                    } else {
+                        events[i].id
+                    },
+                    i,
+                );
                 if add {
                     set.insert(key);
                 } else {
@@ -411,6 +418,13 @@ impl Storage {
         {
             return Err(invalid("invalid or duplicate tag-range id"));
         }
+        if imported_ranges
+            .iter()
+            .any(|r| r.precedence_id.is_some_and(|id| id <= 0))
+        {
+            return Err(invalid("invalid tag-range precedence"));
+        }
+        imported_ranges.sort_by_key(|r| (r.precedence_id.unwrap_or(r.id), r.id));
         for r in &imported_ranges {
             staging.put(Collection::TagRanges,None,serde_json::json!({"tag_id":map.get(&r.tag_id).ok_or_else(||invalid("missing tag"))?,"start_ts":r.start_ts,"end_ts":r.end_ts,"note":r.note}))?;
         }

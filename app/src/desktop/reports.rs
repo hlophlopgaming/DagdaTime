@@ -510,6 +510,7 @@ pub struct Ui {
     pub generation: u64,
     pub data: Option<Data>,
     pub day: Report,
+    overview_timeline_cache: canvas::Cache,
     pub loading: bool,
     pub error: String,
 }
@@ -609,6 +610,7 @@ pub fn from_tracks(tracks: &[Track], tags: &[Tag], range: Range) -> Result<Repor
                 });
             }
             ranges.push(TagRange {
+                precedence_id: s.tag_precedence,
                 id,
                 tag_id,
                 start_ts: original.start,
@@ -1280,6 +1282,7 @@ impl State {
         scrollable(body).into()
     }
     fn overview_view(&self) -> Element<'_, Message> {
+        self.report_ui.overview_timeline_cache.clear();
         let report = &self.report_ui.day;
         let chart_slices = slices(report, self.report_ui.expanded);
         let mut body=column![text(tr("Day overview")).size(22),text(tr("Overlapping tags use the newest range; child tags count under their top-level project."))].spacing(8);
@@ -1299,7 +1302,12 @@ impl State {
                     .width(Length::Fill)
                     .height(360)
                     .into();
-                    let mut legend = column![].spacing(4);
+                    let mut legend = column![overview_columns(
+                        text(tr("Name")).into(),
+                        tr("Duration"),
+                        tr("Share")
+                    )]
+                    .spacing(4);
                     let mut previous = None;
                     for slice in &chart_slices {
                         let key = (slice.tag_id, slice.tag.clone());
@@ -1311,12 +1319,20 @@ impl State {
                                 .map(|i| i.end_ts - i.start_ts)
                                 .sum::<i64>();
                             legend = legend.push(
-                                button(text(format!(
-                                    "{} · {} · {:.1}%",
-                                    translate_label(&slice.tag),
+                                button(overview_columns(
+                                    row![
+                                        container(text("●")).width(20),
+                                        text(translate_label(&slice.tag))
+                                    ]
+                                    .spacing(6)
+                                    .into(),
                                     model::duration(total),
-                                    total as f64 / report.active_ms as f64 * 100.0
-                                )))
+                                    format!(
+                                        "{:.1}%",
+                                        total as f64 / report.active_ms as f64 * 100.0
+                                    ),
+                                ))
+                                .width(Length::Fill)
                                 .on_press(Message::Report(Edit::Highlight(Some((
                                     slice.tag_id,
                                     None,
@@ -1338,18 +1354,34 @@ impl State {
                             slice.duration as f64 / report.active_ms as f64 * 100.0
                         );
                         legend = legend.push(tooltip(
-                            button(text(label.clone()).size(13))
-                                .style(if self.report_ui.highlight == slice.key() {
-                                    button::primary
-                                } else {
-                                    button::text
-                                })
-                                .on_press(Message::Report(Edit::Highlight(slice.key()))),
+                            button(overview_columns(
+                                row![
+                                    self.app_icon(&slice.application, &slice.application),
+                                    text(translate_label(&slice.application)).size(13)
+                                ]
+                                .spacing(6)
+                                .align_y(Alignment::Center)
+                                .into(),
+                                model::duration(slice.duration),
+                                format!(
+                                    "{:.1}%",
+                                    slice.duration as f64 / report.active_ms as f64 * 100.0
+                                ),
+                            ))
+                            .width(Length::Fill)
+                            .style(if self.report_ui.highlight == slice.key() {
+                                button::primary
+                            } else {
+                                button::text
+                            })
+                            .on_press(Message::Report(Edit::Highlight(slice.key()))),
                             text(label),
                             tooltip::Position::FollowCursor,
                         ));
                         if !slice.members.is_empty() {
-                            legend = legend.push(text(slice.members.join(", ")).size(11));
+                            legend = legend.push(
+                                container(text(slice.members.join(", ")).size(11)).padding([0, 12]),
+                            );
                         }
                     }
                     legend = legend
@@ -1380,6 +1412,7 @@ impl State {
         }
         body = body.push(
             Canvas::new(Compact {
+                cache: &self.report_ui.overview_timeline_cache,
                 tracks: &self.all,
                 range: self.day,
                 report,
@@ -1455,7 +1488,26 @@ fn selected(i: &draugr_time_core::ReportInterval, h: &Highlight, other: &[Slice]
             })
     })
 }
+fn overview_columns<'a>(
+    name: Element<'a, Message>,
+    duration: impl Into<String>,
+    share: impl Into<String>,
+) -> Element<'a, Message> {
+    row![
+        container(name).width(Length::Fill),
+        container(text(duration.into()).size(13))
+            .width(90)
+            .align_right(90),
+        container(text(share.into()).size(13))
+            .width(65)
+            .align_right(65)
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .into()
+}
 struct Compact<'a> {
+    cache: &'a canvas::Cache,
     tracks: &'a [Track],
     range: Range,
     report: &'a Report,
@@ -1475,70 +1527,70 @@ impl canvas::Program<Message> for Compact<'_> {
         _: mouse::Cursor,
     ) -> Vec<Geometry> {
         let started = Instant::now();
-        let mut frame = Frame::new(renderer, bounds.size());
-        let x = |ts| {
-            ((ts - self.range.start) as f64 / self.range.duration().max(1) as f64
-                * bounds.width as f64) as f32
-        };
-        let colors = theme.extended_palette();
-        let row_height = (bounds.height - 18.0) / 2.0;
-        frame.fill_rectangle(
-            Point::new(0.0, 18.0),
-            Size::new(bounds.width, row_height * 2.0),
-            colors.background.weak.color,
-        );
-        for s in &self.tracks[1].segments {
-            frame.fill_rectangle(
-                Point::new(x(s.range.start), 18.0),
-                Size::new((x(s.range.end) - x(s.range.start)).max(0.6), row_height),
-                Color::from_rgb(s.color[0], s.color[1], s.color[2]),
-            );
-        }
-        for segment in self.tracks[2]
-            .segments
-            .iter()
-            .filter(|s| s.key.as_ref() == "unobserved")
-        {
-            frame.fill_rectangle(
-                Point::new(x(segment.range.start), 18.0),
-                Size::new(
-                    (x(segment.range.end) - x(segment.range.start)).max(0.6),
-                    6.0,
-                ),
-                Color::from_rgb8(195, 95, 95),
-            );
-        }
-        for i in &self.report.intervals {
-            let color = if selected(i, &self.highlight.cloned(), &self.other) {
-                colors.primary.strong.color
-            } else if i.tag_id.is_none() {
-                Color::from_rgb8(145, 155, 170)
-            } else {
-                tag_color(self.tags, i.tag_id)
+        let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
+            let x = |ts| {
+                ((ts - self.range.start) as f64 / self.range.duration().max(1) as f64
+                    * bounds.width as f64) as f32
             };
+            let colors = theme.extended_palette();
+            let row_height = (bounds.height - 18.0) / 2.0;
             frame.fill_rectangle(
-                Point::new(x(i.start_ts), 18.0 + row_height),
-                Size::new((x(i.end_ts) - x(i.start_ts)).max(0.6), row_height),
-                color,
+                Point::new(0.0, 18.0),
+                Size::new(bounds.width, row_height * 2.0),
+                colors.background.weak.color,
             );
-        }
-        for (ts, label) in hour_ticks(self.range)
-            .into_iter()
-            .filter(|(_, label)| matches!(label.as_str(), "00:00" | "06:00" | "12:00" | "18:00"))
-        {
-            frame.fill_text(Text {
-                content: label,
-                position: Point::new(x(ts), 0.0),
-                size: 11.0.into(),
-                color: colors.background.base.text,
-                ..Default::default()
-            });
-        }
-        self.stats.frames.fetch_add(1, Ordering::Relaxed);
-        self.stats
-            .max_build_us
-            .fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
-        vec![frame.into_geometry()]
+            for s in &self.tracks[1].segments {
+                frame.fill_rectangle(
+                    Point::new(x(s.range.start), 18.0),
+                    Size::new((x(s.range.end) - x(s.range.start)).max(0.6), row_height),
+                    Color::from_rgb(s.color[0], s.color[1], s.color[2]),
+                );
+            }
+            for segment in self.tracks[2]
+                .segments
+                .iter()
+                .filter(|s| s.key.as_ref() == "unobserved")
+            {
+                frame.fill_rectangle(
+                    Point::new(x(segment.range.start), 18.0),
+                    Size::new(
+                        (x(segment.range.end) - x(segment.range.start)).max(0.6),
+                        6.0,
+                    ),
+                    Color::from_rgb8(195, 95, 95),
+                );
+            }
+            for i in &self.report.intervals {
+                let color = if selected(i, &self.highlight.cloned(), &self.other) {
+                    colors.primary.strong.color
+                } else if i.tag_id.is_none() {
+                    Color::from_rgb8(145, 155, 170)
+                } else {
+                    tag_color(self.tags, i.tag_id)
+                };
+                frame.fill_rectangle(
+                    Point::new(x(i.start_ts), 18.0 + row_height),
+                    Size::new((x(i.end_ts) - x(i.start_ts)).max(0.6), row_height),
+                    color,
+                );
+            }
+            for (ts, label) in hour_ticks(self.range).into_iter().filter(|(_, label)| {
+                matches!(label.as_str(), "00:00" | "06:00" | "12:00" | "18:00")
+            }) {
+                frame.fill_text(Text {
+                    content: label,
+                    position: Point::new(x(ts), 0.0),
+                    size: 11.0.into(),
+                    color: colors.background.base.text,
+                    ..Default::default()
+                });
+            }
+            self.stats.frames.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .max_build_us
+                .fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+        });
+        vec![geometry]
     }
 }
 struct Donut<'a> {
@@ -1765,6 +1817,35 @@ impl canvas::Program<Message> for Donut<'_> {
 mod tests {
     use super::*;
     use canvas::Program;
+    #[test]
+    fn overview_timeline_reuses_geometry_until_view_changes() {
+        let (mut state, _) = State::boot();
+        state.all = model::fixture(state.day);
+        state.rebuild();
+        let renderer = Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+        let theme = native_theme(true);
+        let bounds = Rectangle::new(Point::ORIGIN, Size::new(900.0, 88.0));
+        let draw = || {
+            let compact = Compact {
+                cache: &state.report_ui.overview_timeline_cache,
+                tracks: &state.all,
+                range: state.day,
+                report: &state.report_ui.day,
+                highlight: state.report_ui.highlight.as_ref(),
+                other: vec![],
+                tags: &state.tags,
+                stats: &state.stats,
+            };
+            compact.draw(&(), &renderer, &theme, bounds, mouse::Cursor::Unavailable);
+        };
+        let before = state.stats.frames.load(Ordering::Relaxed);
+        draw();
+        draw();
+        assert_eq!(state.stats.frames.load(Ordering::Relaxed), before + 1);
+        let _ = state.overview_view();
+        draw();
+        assert_eq!(state.stats.frames.load(Ordering::Relaxed), before + 2);
+    }
     #[test]
     fn native_donut_pointer_selects_project_or_application_and_shows_cursor() {
         let report = Report {

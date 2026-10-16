@@ -87,11 +87,12 @@ fn read_tags(c: &Connection, predicate: &str) -> Result<Vec<Tag>, StorageError> 
 }
 fn read_ranges(c: &Connection, predicate: &str) -> Result<Vec<TagRange>, StorageError> {
     let mut query = c.prepare(&format!(
-        "SELECT id,tag_id,start_ts,end_ts,note FROM tag_ranges WHERE {predicate} ORDER BY id"
+        "SELECT id,tag_id,start_ts,end_ts,note,precedence_id FROM tag_ranges WHERE {predicate} ORDER BY id"
     ))?;
     let rows = query
         .query_map([], |r| {
             Ok(TagRange {
+                precedence_id: r.get(5)?,
                 id: r.get(0)?,
                 tag_id: r.get(1)?,
                 start_ts: r.get(2)?,
@@ -204,8 +205,8 @@ impl Storage {
         }
         for row in undo.ranges.into_iter().filter_map(|r| r.before) {
             tx.execute(
-                "INSERT INTO tag_ranges(id,tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4,?5)",
-                params![row.id, row.tag_id, row.start_ts, row.end_ts, row.note],
+                "INSERT INTO tag_ranges(id,tag_id,start_ts,end_ts,note,precedence_id) VALUES(?1,?2,?3,?4,?5,?6)",
+                params![row.id, row.tag_id, row.start_ts, row.end_ts, row.note, row.precedence_id],
             )?;
         }
         for row in undo.rules.into_iter().filter_map(|r| r.before) {
@@ -257,13 +258,13 @@ impl Storage {
                     id
                 });
             }
-            let mut query = connection.prepare("SELECT id,tag_id,start_ts,end_ts,note FROM tag_ranges WHERE start_ts<?2 AND end_ts>?1")?;
-            let overlaps = query.query_map(params![start,end], |r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,Option<String>>(4)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            for (id,tag,from,to,note) in overlaps {
+            let mut query = connection.prepare("SELECT id,tag_id,start_ts,end_ts,note,COALESCE(precedence_id,id) FROM tag_ranges WHERE start_ts<?2 AND end_ts>?1")?;
+            let overlaps = query.query_map(params![start,end], |r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,i64>(5)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            for (id,tag,from,to,note,precedence) in overlaps {
                 connection.execute("DELETE FROM tag_ranges WHERE id=?1", [id])?;
                 if !replace {
                     for (a,b) in [(from,start.min(to)),(end.max(from),to)] {
-                        if a < b { connection.execute("INSERT INTO tag_ranges(tag_id,start_ts,end_ts,note) VALUES(?1,?2,?3,?4)", params![tag,a,b,note])?; inserted.push(connection.last_insert_rowid()); }
+                        if a < b { connection.execute("INSERT INTO tag_ranges(tag_id,start_ts,end_ts,note,precedence_id) VALUES(?1,?2,?3,?4,?5)", params![tag,a,b,note,precedence])?; inserted.push(connection.last_insert_rowid()); }
                     }
                 }
             }

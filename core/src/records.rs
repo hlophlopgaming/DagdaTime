@@ -12,6 +12,8 @@ pub struct Tag {
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TagRange {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precedence_id: Option<i64>,
     pub id: i64,
     pub tag_id: i64,
     pub start_ts: i64,
@@ -160,10 +162,11 @@ impl Storage {
         if from < 0 || to <= from {
             return Err(invalid("expected 0 <= from < to"));
         }
-        let mut query = self.connection.prepare_cached("SELECT id,tag_id,start_ts,end_ts,note FROM tag_ranges WHERE start_ts < ?2 AND end_ts > ?1 ORDER BY start_ts,id")?;
+        let mut query = self.connection.prepare_cached("SELECT id,tag_id,start_ts,end_ts,note,precedence_id FROM tag_ranges WHERE start_ts < ?2 AND end_ts > ?1 ORDER BY start_ts,id")?;
         let result = query
             .query_map(params![from, to], |r| {
                 Ok(TagRange {
+                    precedence_id: r.get(5)?,
                     id: r.get(0)?,
                     tag_id: r.get(1)?,
                     start_ts: r.get(2)?,

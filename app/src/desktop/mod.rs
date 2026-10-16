@@ -5,6 +5,10 @@ mod reports;
 #[cfg(test)]
 mod reports_tests;
 mod rules;
+mod settings;
+#[cfg(test)]
+mod settings_tests;
+mod setup;
 use localization::{message as localized, tr, LocaleProvider};
 mod memory;
 mod model;
@@ -58,6 +62,7 @@ fn decode_icons(
 
 #[derive(Clone, Debug)]
 pub enum Message {
+    Settings(settings::Edit),
     Edit(tagging::Edit),
     Rule(rules::Edit),
     Report(reports::Edit),
@@ -114,6 +119,7 @@ enum DayPane {
     Summary,
 }
 struct State {
+    settings_ui: settings::Ui,
     report_ui: reports::Ui,
     rule_editor: rules::Editor,
     language_choice: Option<localization::Language>,
@@ -171,6 +177,7 @@ struct State {
     window: Option<window::Id>,
     smoke: bool,
     runtime_test: bool,
+    onboarding_test: bool,
     lifecycle: bool,
     cycle_stage: u8,
     cycle_duration: i64,
@@ -188,7 +195,9 @@ impl State {
         let launch = startup::LaunchOptions::parse(args.iter().map(String::as_str));
         let smoke = args.iter().any(|arg| arg == "--smoke-test");
         let lifecycle = args.iter().any(|arg| arg == "--lifecycle-test");
-        let runtime_test = lifecycle || args.iter().any(|arg| arg == "--runtime-test");
+        let onboarding_test = args.iter().any(|arg| arg == "--onboarding-test");
+        let runtime_test =
+            onboarding_test || lifecycle || args.iter().any(|arg| arg == "--runtime-test");
         let benchmark = args.iter().any(|arg| arg == "--benchmark");
         let date = Local::now().date_naive();
         let day = model::day_bounds(date);
@@ -218,6 +227,7 @@ impl State {
             }
         };
         let mut state = Self {
+            settings_ui: settings::Ui::load(),
             report_ui: reports::Ui::default(),
             rule_editor: rules::Editor::default(),
             language_choice,
@@ -285,6 +295,7 @@ impl State {
             window: None,
             smoke,
             runtime_test,
+            onboarding_test,
             lifecycle,
             cycle_stage: 0,
             cycle_duration: 0,
@@ -298,7 +309,10 @@ impl State {
                 .unwrap_or(false),
             autostart_error: String::new(),
         };
-        if runtime_test || launch.record_on_launch {
+        if (runtime_test && !onboarding_test)
+            || launch.record_on_launch
+            || (!cfg!(test) && !smoke && !benchmark && state.settings_ui.preferences.onboarded)
+        {
             state.start();
         }
         state.rebuild();
@@ -616,7 +630,16 @@ impl State {
                     tray.update(&self.status, self.metrics[0], self.fixture);
                 }
             }
+            Message::Settings(edit) => return self.edit_settings(edit),
             Message::Tick => {
+                if self.onboarding_test
+                    && !self.settings_ui.preferences.onboarded
+                    && self.clock.elapsed()
+                        > Duration::from_secs((self.settings_ui.step + 1) as u64)
+                {
+                    return self.edit_settings(settings::Edit::Next);
+                }
+
                 if self.last_sample.elapsed() >= Duration::from_secs(1) {
                     let was_active = self.status.computer.activity == "active";
                     self.last_sample = Instant::now();
@@ -686,6 +709,19 @@ impl State {
                     && painted
                     && self.all[2].segments.iter().any(|s| s.range.duration() > 0)
                 {
+                    if self.onboarding_test {
+                        let persisted = draugr_time_daemon::paths::data_dir()
+                            .ok()
+                            .and_then(|p| {
+                                draugr_time_daemon::preferences::Preferences::load(
+                                    &p.join("settings.json"),
+                                )
+                                .ok()
+                            })
+                            .is_some_and(|p| p.onboarded);
+                        assert!(persisted, "onboarding must persist before showing Day");
+                        eprintln!("Iced onboarding passed: two native screens, saved completion, working Day view");
+                    }
                     TEST_PASSED.store(true, Ordering::Relaxed);
                     eprintln!("Iced runtime passed: native window and embedded SQLite recording");
                     return iced::exit();
@@ -1185,7 +1221,7 @@ impl State {
             _ => "○ Not recording",
         })
     }
-    fn app_icon<'a>(&'a self, app: &'a str, app_name: &'a str) -> Element<'a, Message> {
+    fn app_icon<'a>(&'a self, app: &str, app_name: &str) -> Element<'a, Message> {
         let icon_key = model::application_identity(app, app_name);
         match self.icons.get(&icon_key) {
             Some(AppIcon::Png(handle)) => image(handle.clone()).width(20).height(20).into(),
@@ -1610,7 +1646,7 @@ impl State {
                 .color(Color::from_rgb8(200, 75, 75))
         ]
         .spacing(8);
-        let resource=column![image(image::Handle::from_bytes(crate::branding::logo(self.theme.palette().background.r < 0.5))).width(64).height(64).filter_method(image::FilterMethod::Nearest),text(tr("Draugr Time")).size(22),text(tr("Native Rust UI · tiny-skia software renderer")).size(14),text(localized("Canvas draws: {count} · max geometry build: {duration} ms",&[("count",self.stats.frames.load(Ordering::Relaxed).to_string()),("duration",format!("{:.2}",self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0))])).size(13),text(tr("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Themes, tray behavior and OS permissions need verification on each platform.")).size(13)].spacing(12);
+        let resource=column![image(image::Handle::from_bytes(crate::branding::logo(self.theme.palette().background.r < 0.5))).width(64).height(64).filter_method(image::FilterMethod::Nearest),text(tr("Draugr Time")).size(22),text(concat!("Version ", env!("CARGO_PKG_VERSION"), " · GPL-3.0-only\nhttps://github.com/hlophlopgaming/DraugrTime")),text(tr("Native Rust UI · tiny-skia software renderer")).size(14),text(localized("Canvas draws: {count} · max geometry build: {duration} ms",&[("count",self.stats.frames.load(Ordering::Relaxed).to_string()),("duration",format!("{:.2}",self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0))])).size(13),text(tr("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Themes, tray behavior and OS permissions need verification on each platform.")).size(13)].spacing(12);
         scrollable(
             column![
                 container({
@@ -1631,6 +1667,7 @@ impl State {
                 })
                 .padding(16)
                 .style(panel),
+                container(self.privacy_settings()).padding(16).style(panel),
                 container(backend).padding(16).style(panel),
                 container(folder).padding(16).style(panel),
                 container(autostart).padding(16).style(panel),
@@ -1672,6 +1709,12 @@ impl State {
         .into()
     }
     fn view(&self, _id: window::Id) -> Element<'_, Message> {
+        if !self.settings_ui.preferences.onboarded
+            && !self.fixture
+            && (!self.runtime_test || self.onboarding_test)
+        {
+            return self.onboarding();
+        }
         let mut navigation = column![
             image(image::Handle::from_bytes(crate::branding::logo(
                 self.theme.palette().background.r < 0.5
@@ -2013,6 +2056,7 @@ pub fn run() -> iced::Result {
         [
             "--smoke-test",
             "--runtime-test",
+            "--onboarding-test",
             "--lifecycle-test",
             "--autostart-test",
         ]
@@ -2071,6 +2115,10 @@ pub fn run() -> iced::Result {
     }
 
     let result = iced::daemon(State::boot, State::update, State::view)
+        .settings(iced::Settings {
+            id: Some("org.draugrtime.app".into()),
+            ..Default::default()
+        })
         .title(|_: &State, _| "Draugr Time".to_string())
         .subscription(State::subscription)
         .theme(|state: &State, _| state.theme.clone())

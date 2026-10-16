@@ -21,6 +21,7 @@ impl Range {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Segment {
     pub tag_record: Option<(i64, Range)>,
+    pub tag_precedence: Option<i64>,
     pub range: Range,
     pub bucket: &'static str,
     pub key: Arc<str>,
@@ -34,6 +35,7 @@ impl Segment {
     pub fn new(range: Range, key: &str, label: &str) -> Self {
         Self {
             tag_record: None,
+            tag_precedence: None,
             range,
             bucket: "tags",
             key: key.into(),
@@ -274,6 +276,7 @@ pub fn tracks(events: &[Event], tags: &[Tag], ranges: &[TagRange], day: Range) -
         let name = tag.map(|t| t.name.as_str()).unwrap_or("Unknown tag");
         let mut segment = Segment::new(range, &tag_id.to_string(), name);
         segment.tag_record = Some((value.id, original_range));
+        segment.tag_precedence = value.precedence_id;
         segment.label = tag_path(tags, tag_id).into();
         segment.detail = value.note.as_deref().unwrap_or_default().into();
         if let Some(hex) = tag
@@ -547,6 +550,7 @@ pub fn fixture_with_apps(day: Range, apps: &[(String, String)]) -> Vec<Track> {
     ];
     let ranges = [
         TagRange {
+            precedence_id: None,
             id: 1,
             tag_id: 1,
             start_ts: at(8),
@@ -554,6 +558,7 @@ pub fn fixture_with_apps(day: Range, apps: &[(String, String)]) -> Vec<Track> {
             note: None,
         },
         TagRange {
+            precedence_id: None,
             id: 2,
             tag_id: 2,
             start_ts: at(13),

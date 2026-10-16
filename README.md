@@ -26,9 +26,6 @@ Draugr Time records your active application, window title and active/away time,
 then shows them on a daily timeline. It is a free, GPL-3.0 project inspired by
 ManicTime's workflow. Your history stays on your computer.
 
-> **Early development:** Day/Overview/Week, tags, rules, monthly reports,
-> CSV/JSON and ActivityWatch import work. Release 1.0 is next.
-
 ## What works
 
 - Native **Iced** UI with light, dark and system themes.
@@ -41,6 +38,7 @@ ManicTime's workflow. Your history stays on your computer.
 - Day overview, weekly timelines, monthly reports and timesheets; CSV/JSON export,
   ActivityWatch import and a separate headless `draugr-time-cli`.
 - Local SQLite storage and a selectable data folder.
+- First-run setup, application exclusions, recording schedules and confirmed range deletion.
 
 One executable contains the UI, tracking, storage and localhost API. There is
 no web frontend or separate service to launch. Normal launches have no demo mode.
@@ -57,7 +55,10 @@ These screenshots show generated sample history, not personal activity.
 
 Install stable Rust. Linux needs librsvg and libxkbcommon-x11 development packages,
 a StatusNotifierItem tray host and xdg-desktop-portal with a desktop backend. Windows needs MSVC; macOS needs Xcode
-command-line tools. Installers are not available yet.
+command-line tools. For ready-to-run archives, use the
+[releases page](https://github.com/hlophlopgaming/DraugrTime/releases). Extract first:
+Windows/Linux launch `draugr-time`; macOS opens `Draugr Time.app`.
+Installers are planned for 1.1. See [first-run setup](docs/m10.md).
 
 ```sh
 git clone https://github.com/hlophlopgaming/DraugrTime.git
@@ -66,7 +67,7 @@ cargo run --release --package draugr-time
 ```
 
 The executable is `target/release/draugr-time` (`.exe` on Windows). Press
-**Start recording** to collect activity. Closing the window keeps recording
+**Start recording** in onboarding to collect activity. Closing the window keeps recording
 in the tray; **Quit** stops the application.
 
 See [development instructions](docs/DEVELOPMENT.md) for checks and diagnostics,
@@ -90,7 +91,7 @@ and [desktop usage](docs/desktop.md) for settings and platform notes.
 - [x] **M6:** automatic tagging rules with preview/history undo; eight interface languages, OS detection, saved selection and English fallback. Platform/translation review: [M6 verification](docs/m6.md).
 - [x] **M7:** Week view, reports, CSV/JSON export and ActivityWatch import.
 - [x] ~~**M9:** browser extension~~ — dropped: window titles already cover browser pages.
-- [ ] **M10 — 1.0:** app icon everywhere, built-in CLI on Linux/macOS, first-run onboarding, minimal privacy settings.
+- [x] **M10 — 1.0:** app icon everywhere, built-in CLI on Linux/macOS, first-run onboarding, minimal privacy settings.
 - [ ] **M11 — 1.1:** installers: Windows installer, AppImage, Flatpak, macOS DMG.
 - [ ] **M12:** design, backups, title masking, notes, shortcuts, file paths, Git branch detection.
 
@@ -111,3 +112,7 @@ Settings offers English, Russian, German, French, Spanish, Portuguese, Simplifie
 and Japanese, or the system language. See [M6 usage and verification](docs/m6.md).
 
 Day overview, week timelines, reports and local console: [M7 guide](docs/m7.md).
+
+On Linux/macOS the CLI is built into the desktop executable and runs without a
+window: `draugr-time report --from 2026-10-01 --to 2026-10-16 --json`.
+Use `draugr-time --help`; Windows uses the separate `draugr-time-cli.exe`.
