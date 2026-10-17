@@ -39,10 +39,12 @@ jobs:
         shell: bash
         run: |
           for f in clippy.log clippy-gpu.log; do
-            [ -f "$f" ] || continue
-            msg=$(grep -E -A18 '^(error|warning)(\[|:)' "$f" | head -c 20000 | python3 -c "import sys;print(sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'))")
-            echo "::error title=$f::$msg"
+            if [ -f "$f" ]; then
+              msg=$(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' "$f" | grep -v -E '^ *(Compiling|Checking|Downloaded|Downloading|Updating|Locking|Adding) ' | tail -c 30000 | python3 -c "import sys;print(sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'))")
+              echo "::error title=$f::$msg"
+            fi
           done
+          true
       - run: cargo test
       - name: Verify Linux StatusNotifierItem menu without a GUI
         if: runner.os == 'Linux'
