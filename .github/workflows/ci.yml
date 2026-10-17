@@ -70,6 +70,24 @@ jobs:
           codesign --force --deep --sign - "target/release/Draugr Time.app"
           "target/release/Draugr Time.app/Contents/MacOS/draugr-time" --smoke-test
           tar -C target/release -czf target/release/Draugr-Time-macOS.tar.gz "Draugr Time.app" draugr-time
+      - name: Assemble macOS DMG
+        if: runner.os == 'macOS'
+        run: scripts/package_dmg.sh
+      - name: Build Linux AppImage
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y squashfs-tools
+          curl -fsSL https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -o target/appimagetool
+          chmod +x target/appimagetool
+          python3 scripts/package_appimage.py target/appimagetool
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+          & $iscc packaging/windows/installer.iss
       - name: Upload desktop and CLI executables
         uses: actions/upload-artifact@v4
         with:
@@ -80,6 +98,9 @@ jobs:
             target/release/draugr-time-cli
             target/release/draugr-time-cli.exe
             target/release/Draugr-Time-macOS.tar.gz
+            target/release/Draugr-Time-macOS.dmg
+            target/release/Draugr-Time-x86_64.AppImage
+            target/release/Draugr-Time-Setup.exe
           if-no-files-found: error
 
   release:
@@ -103,8 +124,10 @@ jobs:
           cp logo/blackDraugr128.png artifacts/Draugr-Time-Linux/icons/hicolor/128x128/apps/org.draugrtime.app.png
           tar -C artifacts/Draugr-Time-Linux -czf release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.tar.gz draugr-time org.draugrtime.app.desktop icons
           cp artifacts/Draugr-Time-macOS/Draugr-Time-macOS.tar.gz release/Draugr-Time-${GITHUB_REF_NAME}-macOS.tar.gz
-          cd artifacts/Draugr-Time-Windows
-          zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe draugr-time-cli.exe
+          cp artifacts/Draugr-Time-Linux/Draugr-Time-x86_64.AppImage release/Draugr-Time-${GITHUB_REF_NAME}-Linux-x86_64.AppImage
+          cp artifacts/Draugr-Time-Windows/Draugr-Time-Setup.exe release/Draugr-Time-${GITHUB_REF_NAME}-Windows-Setup.exe
+          cp artifacts/Draugr-Time-macOS/Draugr-Time-macOS.dmg release/Draugr-Time-${GITHUB_REF_NAME}-macOS.dmg
+          (cd artifacts/Draugr-Time-Windows && zip "../../release/Draugr-Time-${GITHUB_REF_NAME}-Windows-x86_64.zip" draugr-time.exe draugr-time-cli.exe)
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

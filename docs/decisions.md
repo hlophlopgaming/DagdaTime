@@ -773,3 +773,31 @@ highlight, theme and date; canvas also invalidates on size changes.
   by wgpu was considered but rejected on 2026-10-17: a mostly-hidden tracker pays
   more in resident/device memory and shader compilation than it saves in redraw
   CPU, so the extra dependency is not worth it.
+
+## 2026-10-17 — M11 installers
+
+- **About links.** The Settings → About panel gains two clickable buttons that
+  open the user's default browser: the GitHub repository and the creator
+  `hlophlopgaming` (profile link). Opening is user-initiated, so it does not
+  violate the no-network rule. `open_url` uses the OS launcher (`xdg-open` /
+  `open` / `cmd /C start`) through `std::process::Command`; no new dependency.
+  The URLs are `&'static str` constants, so no link construction is needed.
+- **Windows installer.** Inno Setup installs both executables per user
+  (`PrivilegesRequired=lowest`, `%LOCALAPPDATA%\Programs\Draugr Time`), offers a
+  Start-menu/desktop shortcut and adds the install directory to the user PATH so
+  `draugr-time-cli` works from a terminal. The installer only removes files it
+  installed, so uninstalling leaves history in `%LOCALAPPDATA%\DraugrTime` in
+  place. A portable zip is still produced for users who prefer it.
+- **macOS DMG.** The existing `.app` bundle is placed in a UDZO DMG with a
+  `/Applications` symlink for drag-install; `hdiutil` builds it in CI.
+- **Linux AppImage.** A hand-assembled AppDir (`usr/bin/draugr-time`, `AppRun`,
+  the desktop entry and hicolor icon) is packed with `appimagetool`. The desktop
+  entry keeps `Exec=draugr-time` and the icon name `org.draugrtime.app`.
+- **Flatpak deferred.** Per the user's request, Flatpak is deferred to a later
+  pass; it needs a generated offline cargo-sources manifest and the GNOME SDK in
+  CI, which is disproportionate for this milestone. It is recorded in PLAN's
+  "Later" list.
+- **Release CI.** Packaging runs in the per-OS `check` job (which already builds
+  the release binary) and uploads the installer as an extra artifact; the
+  `release` job renames and attaches every installer next to the existing
+  archives. No new secrets or signing: Windows and macOS outputs stay unsigned.

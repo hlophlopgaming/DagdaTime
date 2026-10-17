@@ -55,10 +55,11 @@ These screenshots show generated sample history, not personal activity.
 
 Install stable Rust. Linux needs librsvg and libxkbcommon-x11 development packages,
 a StatusNotifierItem tray host and xdg-desktop-portal with a desktop backend. Windows needs MSVC; macOS needs Xcode
-command-line tools. For ready-to-run archives, use the
-[releases page](https://github.com/hlophlopgaming/DraugrTime/releases). Extract first:
-Windows/Linux launch `draugr-time`; macOS opens `Draugr Time.app`.
-Installers are planned for 1.1. See [first-run setup](docs/m10.md).
+command-line tools. For ready-to-run archives and installers, use the
+[releases page](https://github.com/hlophlopgaming/DraugrTime/releases). Windows
+offers an installer and a portable zip, macOS a DMG, and Linux an AppImage plus
+a portable archive. Extract archives before launching: Windows/Linux run
+`draugr-time`; macOS opens `Draugr Time.app`. See [first-run setup](docs/m10.md).
 
 ```sh
 git clone https://github.com/hlophlopgaming/DraugrTime.git
@@ -92,7 +93,7 @@ and [desktop usage](docs/desktop.md) for settings and platform notes.
 - [x] **M7:** Week view, reports, CSV/JSON export and ActivityWatch import.
 - [x] ~~**M9:** browser extension~~ — dropped: window titles already cover browser pages.
 - [x] **M10 — 1.0:** app icon everywhere, built-in CLI on Linux/macOS, first-run onboarding, minimal privacy settings.
-- [ ] **M11 — 1.1:** installers: Windows installer, AppImage, Flatpak, macOS DMG.
+- [x] **M11 — 1.1:** installers: Windows installer + portable zip, Linux AppImage, macOS DMG (Flatpak deferred).
 - [ ] **M12:** design, backups, title masking, notes, shortcuts, file paths, Git branch detection.
 
 Details: [PLAN.md](PLAN.md) · [Architecture decisions](docs/decisions.md).

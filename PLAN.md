@@ -341,7 +341,7 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 ### M11 — Release 1.1: installers
 - In the app’s About screen, add a clickable link to the GitHub repository and credit its creator, **hlophlopgaming**, with a link to the GitHub profile.
 - Windows: installer (Inno Setup or MSI) that adds `draugr-time-cli` to PATH, plus the portable zip.
-- Linux: AppImage and Flatpak.
+- Linux: AppImage (Flatpak deferred to Later).
 - macOS: `.app` bundle in a DMG.
 - Release CI builds and attaches every installer.
 - ✅ Fresh install on each OS goes through onboarding to a working Day view without touching a terminal; uninstall leaves history in place unless the user deletes it.
@@ -356,7 +356,7 @@ Each milestone = one focused AI session. Do not start the next until the accepta
 - Git repository and branch detection for terminals and IDEs.
 
 ### Later
-Screenshots track (as in ManicTime), DB encryption, multi-device sync (CRDT or self-hosted server), MCP server on top of the local API, browser extensions (former M9).
+Screenshots track (as in ManicTime), DB encryption, multi-device sync (CRDT or self-hosted server), MCP server on top of the local API, browser extensions (former M9), Linux Flatpak packaging (deferred from M11).
 
 ---
 

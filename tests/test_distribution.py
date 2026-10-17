@@ -34,3 +34,40 @@ class DistributionTests(unittest.TestCase):
             self.assertEqual(info['CFBundleShortVersionString'], '1.0.0')
             self.assertEqual((contents / 'MacOS' / info['CFBundleExecutable']).read_bytes(), source.read_bytes())
             self.assertTrue((contents / 'Resources' / info['CFBundleIconFile']).is_file())
+
+    def test_windows_installer_ships_cli_and_adds_it_to_user_path(self):
+        script = (ROOT / 'packaging/windows/installer.iss').read_text()
+        for required in ('draugr-time.exe', 'draugr-time-cli.exe',
+                         'PrivilegesRequired=lowest', 'HKCU', 'Environment',
+                         'ValueName: "Path"', 'NeedsAddPath'):
+            self.assertIn(required, script)
+
+    def test_appimage_appdir_has_apprun_desktop_and_icon(self):
+        spec = importlib.util.spec_from_file_location('appimage', ROOT / 'scripts/package_appimage.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            source = folder / 'draugr-time'
+            source.write_bytes(b'fake executable')
+            appdir = folder / 'AppDir'
+            module.assemble_appdir(source, appdir)
+            self.assertTrue((appdir / 'usr/bin/draugr-time').is_file())
+            self.assertTrue((appdir / 'AppRun').read_text().startswith('#!/bin/sh'))
+            self.assertTrue((appdir / 'AppRun').stat().st_mode & 0o111)
+            self.assertTrue((appdir / 'org.draugrtime.app.desktop').is_file())
+            self.assertTrue((appdir / 'org.draugrtime.app.png').is_file())
+            self.assertTrue((appdir / 'usr/share/applications/org.draugrtime.app.desktop').is_file())
+            self.assertTrue((appdir / 'usr/share/icons/hicolor/128x128/apps/org.draugrtime.app.png').is_file())
+
+    def test_macos_dmg_stages_app_and_applications_link(self):
+        script = (ROOT / 'scripts/package_dmg.sh').read_text()
+        for required in ('hdiutil', 'Draugr Time.app', '/Applications'):
+            self.assertIn(required, script)
+
+    def test_ci_builds_and_attaches_installers(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        for required in ('Build Windows installer', 'Build Linux AppImage',
+                         'Assemble macOS DMG', 'Draugr-Time-Setup.exe',
+                         'Draugr-Time-x86_64.AppImage', 'Draugr-Time-macOS.dmg'):
+            self.assertIn(required, workflow)

@@ -44,6 +44,26 @@ use std::{
 
 static TEST_PASSED: AtomicBool = AtomicBool::new(false);
 
+/// OS command used to open a URL in the user's default browser.
+fn open_command(url: &str) -> (&'static str, Vec<String>) {
+    #[cfg(target_os = "windows")]
+    return (
+        "cmd",
+        vec!["/C".into(), "start".into(), String::new(), url.into()],
+    );
+    #[cfg(target_os = "macos")]
+    return ("open", vec![url.into()]);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    return ("xdg-open", vec![url.into()]);
+}
+
+fn open_url(url: &str) {
+    let (program, args) = open_command(url);
+    if let Err(error) = std::process::Command::new(program).args(args).spawn() {
+        eprintln!("failed to open {url}: {error}");
+    }
+}
+
 fn decode_icons(
     icons: HashMap<String, Option<crate::icons::IconData>>,
 ) -> HashMap<String, AppIcon> {
@@ -103,6 +123,7 @@ pub enum Message {
     Quit,
     Folder,
     FolderChosen(Option<std::path::PathBuf>),
+    OpenUrl(&'static str),
     Key(keyboard::Key, keyboard::Modifiers),
     Loaded(u64, Result<Snapshot, String>),
     Screenshot(window::Screenshot),
@@ -1000,6 +1021,7 @@ impl State {
                 }
             }
             Message::More => self.limit += 50,
+            Message::OpenUrl(url) => open_url(url),
             Message::Theme => {
                 self.theme_preference = self.theme_preference.next();
                 self.apply_theme();
@@ -1646,7 +1668,7 @@ impl State {
                 .color(Color::from_rgb8(200, 75, 75))
         ]
         .spacing(8);
-        let resource=column![image(image::Handle::from_bytes(crate::branding::logo(self.theme.palette().background.r < 0.5))).width(64).height(64).filter_method(image::FilterMethod::Nearest),text(tr("Draugr Time")).size(22),text(concat!("Version ", env!("CARGO_PKG_VERSION"), " · GPL-3.0-only\nhttps://github.com/hlophlopgaming/DraugrTime")),text(tr("Native Rust UI · tiny-skia software renderer")).size(14),text(localized("Canvas draws: {count} · max geometry build: {duration} ms",&[("count",self.stats.frames.load(Ordering::Relaxed).to_string()),("duration",format!("{:.2}",self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0))])).size(13),text(tr("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Themes, tray behavior and OS permissions need verification on each platform.")).size(13)].spacing(12);
+        let resource=column![image(image::Handle::from_bytes(crate::branding::logo(self.theme.palette().background.r < 0.5))).width(64).height(64).filter_method(image::FilterMethod::Nearest),text(tr("Draugr Time")).size(22),text(concat!("Version ", env!("CARGO_PKG_VERSION"), " · GPL-3.0-only")),button(text("https://github.com/hlophlopgaming/DraugrTime")).on_press(Message::OpenUrl("https://github.com/hlophlopgaming/DraugrTime")),row![text(tr("Created by")),button(text("hlophlopgaming")).on_press(Message::OpenUrl("https://github.com/hlophlopgaming"))].spacing(6).align_y(Alignment::Center),text(tr("Native Rust UI · tiny-skia software renderer")).size(14),text(localized("Canvas draws: {count} · max geometry build: {duration} ms",&[("count",self.stats.frames.load(Ordering::Relaxed).to_string()),("duration",format!("{:.2}",self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0))])).size(13),text(tr("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Themes, tray behavior and OS permissions need verification on each platform.")).size(13)].spacing(12);
         scrollable(
             column![
                 container({
@@ -2665,3 +2687,19 @@ mod panel_tests {
 
 #[cfg(test)]
 mod localization_tests;
+
+#[cfg(test)]
+mod about_tests {
+    use super::open_command;
+
+    #[test]
+    fn open_command_passes_the_url_to_the_platform_launcher() {
+        let (program, args) = open_command("https://github.com/hlophlopgaming/DraugrTime");
+        assert!(!program.is_empty());
+        assert!(
+            args.iter()
+                .any(|arg| arg == "https://github.com/hlophlopgaming/DraugrTime"),
+            "{args:?}"
+        );
+    }
+}
