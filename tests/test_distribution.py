@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 import plistlib
 import struct
@@ -54,7 +55,8 @@ class DistributionTests(unittest.TestCase):
             module.assemble_appdir(source, appdir)
             self.assertTrue((appdir / 'usr/bin/draugr-time').is_file())
             self.assertTrue((appdir / 'AppRun').read_text().startswith('#!/bin/sh'))
-            self.assertTrue((appdir / 'AppRun').stat().st_mode & 0o111)
+            if os.name != 'nt':
+                self.assertTrue((appdir / 'AppRun').stat().st_mode & 0o111)
             self.assertTrue((appdir / 'org.draugrtime.app.desktop').is_file())
             self.assertTrue((appdir / 'org.draugrtime.app.png').is_file())
             self.assertTrue((appdir / 'usr/share/applications/org.draugrtime.app.desktop').is_file())

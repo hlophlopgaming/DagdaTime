@@ -1,5 +1,0 @@
-#!/bin/sh
-# AppImage entry point: run the bundled desktop binary with its own directory on PATH.
-HERE="$(dirname "$(readlink -f "$0")")"
-export PATH="$HERE/usr/bin:$PATH"
-exec "$HERE/usr/bin/draugr-time" "$@"
