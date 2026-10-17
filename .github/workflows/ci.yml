@@ -28,9 +28,21 @@ jobs:
           sudo apt-get install -y build-essential libxkbcommon-x11-dev librsvg2-dev xvfb
       - run: python -m unittest discover -s tests
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+      - name: Run cargo clippy --all-targets -- -D warnings
+        shell: bash
+        run: set -o pipefail; cargo clippy --all-targets -- -D warnings 2>&1 | tee clippy.log
       - name: Check the opt-in GPU renderer
-        run: cargo clippy --package draugr-time --features gpu --all-targets -- -D warnings
+        shell: bash
+        run: set -o pipefail; cargo clippy --package draugr-time --features gpu --all-targets -- -D warnings 2>&1 | tee clippy-gpu.log
+      - name: Surface clippy errors (temporary)
+        if: failure()
+        shell: bash
+        run: |
+          for f in clippy.log clippy-gpu.log; do
+            [ -f "$f" ] || continue
+            msg=$(grep -E -A18 '^(error|warning)(\[|:)' "$f" | head -c 20000 | python3 -c "import sys;print(sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'))")
+            echo "::error title=$f::$msg"
+          done
       - run: cargo test
       - name: Verify Linux StatusNotifierItem menu without a GUI
         if: runner.os == 'Linux'
