@@ -208,10 +208,11 @@ mod tests {
     fn portal_stream_reports_the_current_scheme_first() {
         use iced::futures::StreamExt;
 
+        let mut changes = std::pin::pin!(super::portal_theme_changes());
         let first = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap()
-            .block_on(super::portal_theme_changes().next());
+            .block_on(changes.next());
         assert_ne!(first, Some(iced::theme::Mode::None));
         assert!(first.is_some());
     }

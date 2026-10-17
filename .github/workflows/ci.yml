@@ -28,23 +28,11 @@ jobs:
           sudo apt-get install -y build-essential libxkbcommon-x11-dev librsvg2-dev xvfb
       - run: python -m unittest discover -s tests
       - run: cargo fmt --check
-      - name: Run cargo clippy --all-targets -- -D warnings
-        shell: bash
-        run: set -o pipefail; cargo clippy --all-targets -- -D warnings 2>&1 | tee clippy.log
+      - run: cargo clippy --all-targets -- -D warnings
       - name: Check the opt-in GPU renderer
-        shell: bash
-        run: set -o pipefail; cargo clippy --package draugr-time --features gpu --all-targets -- -D warnings 2>&1 | tee clippy-gpu.log
-      - name: Surface clippy errors (temporary)
-        if: failure()
-        shell: bash
-        run: |
-          for f in clippy.log clippy-gpu.log; do
-            if [ -f "$f" ]; then
-              msg=$(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' "$f" | grep -v -E '^ *(Compiling|Checking|Downloaded|Downloading|Updating|Locking|Adding) ' | tail -c 30000 | python3 -c "import sys;print(sys.stdin.read().replace('%','%25').replace('\r','').replace('\n','%0A'))")
-              echo "::error title=$f::$msg"
-            fi
-          done
-          true
+        # Application targets only: renderer tests build tiny-skia's headless renderer
+        # directly and run in `cargo test` with the default (software) build.
+        run: cargo clippy --package draugr-time --features gpu -- -D warnings
       - run: cargo test
       - name: Verify Linux StatusNotifierItem menu without a GUI
         if: runner.os == 'Linux'
