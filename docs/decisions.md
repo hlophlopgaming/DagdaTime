@@ -750,3 +750,28 @@ highlight, theme and date; canvas also invalidates on size changes.
 - Add migration 005 and nullable `tag_ranges.precedence_id`: retained fragments
   keep their original creation precedence instead of overtaking newer tags.
   Reports, undo and archive import preserve this ordering; existing ranges use ID.
+
+## 2026-10-17 — Event-driven GUI wakeups and an opt-in GPU renderer
+
+- **One-second tick.** Linux and Windows already sample on a worker that pushes
+  status changes (`tray::Event::Status`), so the GUI timer only has to load
+  history. It now runs while a window is open and either the shown day has not
+  been loaded yet, or the Day screen shows a day that still contains the current
+  time. A loaded past day, the other screens and the preview no longer wake the
+  GUI every second. The tick body is unchanged. macOS keeps ticking because AppKit
+  sampling stays on the main thread; lifecycle, benchmark, smoke, runtime and
+  onboarding checks keep their ticks. Leaving the Day screen pauses today's
+  refresh, as closing the window already did; returning resumes it within a
+  second. The decision lives in `ticking::TickDemand` with unit tests.
+- **Linux theme.** Replace the two-second `ReadOne` poll with a subscription to
+  the XDG portal's `SettingChanged` signal over the existing zbus stack. The
+  stream reads the current value after subscribing, then emits only
+  `org.freedesktop.appearance` / `color-scheme` changes. Iced's
+  `linux-theme-detection` would do the same through the extra `mundy` crate with
+  its own connection; reusing zbus adds no dependency.
+- **Renderer.** Keep tiny-skia as the default: it needs no GPU driver, shader
+  compilation or device buffers, which suits a mostly-hidden tracker. A `gpu`
+  Cargo feature enables Iced's wgpu renderer with tiny-skia as the automatic
+  fallback; `ICED_BACKEND=tiny-skia` forces software rendering. Whether wgpu
+  pays off (lower redraw CPU against higher resident and device memory) must be
+  measured per machine; `scripts/measure_idle.py` compares builds.

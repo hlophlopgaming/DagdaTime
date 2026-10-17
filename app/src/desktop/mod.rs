@@ -16,6 +16,7 @@ mod runtime;
 mod single_instance;
 mod startup;
 mod tagging;
+mod ticking;
 mod timeline;
 mod tray;
 
@@ -95,8 +96,6 @@ pub enum Message {
     SystemThemeChanged(iced::theme::Mode),
     #[cfg(target_os = "linux")]
     PortalThemeChanged(Option<iced::theme::Mode>),
-    #[cfg(target_os = "linux")]
-    RefreshSystemTheme,
     Start,
     AutoStart(bool),
     Pause(Option<i64>),
@@ -546,6 +545,18 @@ impl State {
         }
         self.rebuild();
     }
+    fn tick_demand(&self) -> ticking::TickDemand {
+        let now = draugr_time_daemon::now_ms();
+        ticking::TickDemand {
+            always: self.lifecycle || self.benchmark || cfg!(target_os = "macos"),
+            window_open: self.window.is_some(),
+            window_diagnostics: self.smoke || self.runtime_test,
+            can_load: !self.fixture && self.runtime.is_some(),
+            day_loaded: self.loaded_day == Some(self.day),
+            live_day: self.day.start <= now && now < self.day.end,
+            on_day_screen: self.screen == "Day",
+        }
+    }
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![
             Subscription::run(tray::events).map(Message::Tray),
@@ -562,14 +573,15 @@ impl State {
                 _ => None,
             }),
         ];
-        if self.window.is_some() || self.lifecycle || self.benchmark || cfg!(target_os = "macos") {
+        if self.tick_demand().needed() {
             subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick));
         }
-        // Polling the portal only matters while there is a window to theme.
+        // The portal reports theme changes itself; listen only while there is a window to theme.
         #[cfg(target_os = "linux")]
         if self.theme_preference == appearance::Preference::System && self.window.is_some() {
             subscriptions.push(
-                iced::time::every(Duration::from_secs(2)).map(|_| Message::RefreshSystemTheme),
+                Subscription::run(appearance::portal_theme_changes)
+                    .map(|mode| Message::PortalThemeChanged(Some(mode))),
             );
         }
         #[cfg(not(target_os = "linux"))]
@@ -1010,18 +1022,6 @@ impl State {
             }
             #[cfg(target_os = "linux")]
             Message::PortalThemeChanged(None) => {}
-            #[cfg(target_os = "linux")]
-            Message::RefreshSystemTheme => {
-                return Task::perform(
-                    async {
-                        tokio::task::spawn_blocking(appearance::system_mode)
-                            .await
-                            .ok()
-                            .flatten()
-                    },
-                    Message::PortalThemeChanged,
-                );
-            }
             Message::Start => self.start(),
             Message::AutoStart(enabled) => match startup::SystemStartup::new()
                 .and_then(|mut provider| startup::set_enabled(&mut provider, enabled))
@@ -2321,6 +2321,76 @@ mod load_tests {
 
 #[cfg(test)]
 mod tagging_tests;
+
+// macOS samples on the GUI thread and always ticks, so only other platforms can idle.
+#[cfg(all(test, not(target_os = "macos")))]
+mod tick_tests {
+    use super::*;
+
+    fn recording_state() -> State {
+        let (mut state, _) = State::boot();
+        state.window = Some(window::Id::unique());
+        state.fixture = false;
+        state.runtime = Some(Runtime::for_test(draugr_time_daemon::Shared::new(
+            draugr_time_core::Storage::open_in_memory().unwrap(),
+            "test".into(),
+            300,
+        )));
+        state
+    }
+
+    #[test]
+    fn open_window_ticks_until_the_shown_day_is_loaded() {
+        let mut state = recording_state();
+        state.loaded_day = None;
+        assert!(state.tick_demand().needed());
+    }
+
+    #[test]
+    fn live_day_ticks_only_on_the_day_screen() {
+        let mut state = recording_state();
+        state.loaded_day = Some(state.day);
+        assert!(
+            state.tick_demand().needed(),
+            "today keeps refreshing on Day"
+        );
+        state.set_screen("Settings");
+        assert!(
+            !state.tick_demand().needed(),
+            "Settings shows no live history"
+        );
+        state.set_screen("Day");
+        assert!(state.tick_demand().needed());
+    }
+
+    #[test]
+    fn loaded_past_day_and_closed_window_stop_ticking() {
+        let mut state = recording_state();
+        let yesterday = state.date.checked_sub_days(Days::new(1)).unwrap();
+        state.change_date(yesterday);
+        assert!(
+            state.tick_demand().needed(),
+            "a new day still needs its first load"
+        );
+        state.loaded_day = Some(state.day);
+        assert!(
+            !state.tick_demand().needed(),
+            "past history does not change"
+        );
+        state.change_date(Local::now().date_naive());
+        state.loaded_day = Some(state.day);
+        state.window = None;
+        assert!(!state.tick_demand().needed());
+    }
+
+    #[test]
+    fn preview_without_runtime_does_not_tick() {
+        let mut state = recording_state();
+        state.runtime = None;
+        state.loaded_day = None;
+        assert!(!state.tick_demand().needed());
+    }
+}
 
 #[cfg(test)]
 mod memory_tests {

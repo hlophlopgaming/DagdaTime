@@ -29,6 +29,10 @@ jobs:
       - run: python -m unittest discover -s tests
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
+      - name: Check the opt-in GPU renderer
+        # Application targets only: renderer tests build tiny-skia's headless renderer
+        # directly and run in `cargo test` with the default (software) build.
+        run: cargo clippy --package draugr-time --features gpu -- -D warnings
       - run: cargo test
       - name: Verify Linux StatusNotifierItem menu without a GUI
         if: runner.os == 'Linux'
@@ -45,6 +49,12 @@ jobs:
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" xvfb-run -a target/release/draugr-time --lifecycle-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-onboarding" xvfb-run -a target/release/draugr-time --onboarding-test
           XDG_CONFIG_HOME="$RUNNER_TEMP/draugr-time-autostart" target/release/draugr-time --autostart-test
+      - name: Launch GPU build with software fallback (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --package draugr-time --features gpu
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/debug/draugr-time --smoke-test
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 ICED_BACKEND=tiny-skia xvfb-run -a target/debug/draugr-time --smoke-test
       - name: Launch desktop (macOS)
         if: runner.os == 'macOS'
         run: |
