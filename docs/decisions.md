@@ -751,7 +751,7 @@ highlight, theme and date; canvas also invalidates on size changes.
   keep their original creation precedence instead of overtaking newer tags.
   Reports, undo and archive import preserve this ordering; existing ranges use ID.
 
-## 2026-10-17 — Event-driven GUI wakeups and an opt-in GPU renderer
+## 2026-10-17 — Event-driven GUI wakeups and Linux theme signals
 
 - **One-second tick.** Linux and Windows already sample on a worker that pushes
   status changes (`tray::Event::Status`), so the GUI timer only has to load
@@ -769,9 +769,7 @@ highlight, theme and date; canvas also invalidates on size changes.
   `org.freedesktop.appearance` / `color-scheme` changes. Iced's
   `linux-theme-detection` would do the same through the extra `mundy` crate with
   its own connection; reusing zbus adds no dependency.
-- **Renderer.** Keep tiny-skia as the default: it needs no GPU driver, shader
-  compilation or device buffers, which suits a mostly-hidden tracker. A `gpu`
-  Cargo feature enables Iced's wgpu renderer with tiny-skia as the automatic
-  fallback; `ICED_BACKEND=tiny-skia` forces software rendering. Whether wgpu
-  pays off (lower redraw CPU against higher resident and device memory) must be
-  measured per machine; `scripts/measure_idle.py` compares builds.
+- **Renderer.** tiny-skia stays the only renderer. An opt-in `gpu` feature backed
+  by wgpu was considered but rejected on 2026-10-17: a mostly-hidden tracker pays
+  more in resident/device memory and shader compilation than it saves in redraw
+  CPU, so the extra dependency is not worth it.

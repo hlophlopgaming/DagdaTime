@@ -20,13 +20,6 @@ rfd = { version = "0.16", default-features = false, features = ["xdg-portal", "a
 tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
-[features]
-default = []
-# Opt-in GPU rendering through wgpu (Vulkan, Metal, DX12 or OpenGL). tiny-skia stays
-# compiled in: Iced tries wgpu first and falls back to tiny-skia when no adapter is
-# available. `ICED_BACKEND=tiny-skia` forces the software renderer at runtime.
-gpu = ["iced/wgpu"]
-
 [target.'cfg(target_os = "linux")'.dependencies]
 freedesktop-icons = "0.4"
 libc = "0.2"

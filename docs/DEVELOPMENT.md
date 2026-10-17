@@ -12,22 +12,6 @@ cargo run --package draugr-time
 cargo build --package draugr-time --release
 ```
 
-The software renderer is the default. To try GPU rendering, build with the
-`gpu` feature; Iced uses wgpu when an adapter is available and falls back to
-tiny-skia otherwise. `ICED_BACKEND=tiny-skia` forces the software renderer.
-
-```sh
-cargo run --release --package draugr-time --features gpu
-ICED_BACKEND=tiny-skia target/release/draugr-time
-```
-
-To compare idle CPU, wakeups and memory between builds on Linux, keep the window
-on the same screen and sample the running process:
-
-```sh
-python3 scripts/measure_idle.py "$(pgrep -n draugr-time)" 60
-```
-
 The application is `target/release/draugr-time` (`.exe` on Windows). Press
 **Start recording** to show recorded activity. Closing the window keeps the
 tray and tracking; Quit stops the application. Settings can choose another
