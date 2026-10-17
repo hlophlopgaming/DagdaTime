@@ -40,7 +40,7 @@ jobs:
       - name: Verify native X11 watcher and debug polling
         if: runner.os == 'Linux'
         run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a cargo test --package draugr-time-watchers --package draugr-time-daemon -- --ignored --test-threads=1
-      - run: cargo build --package draugr-time --release
+      - run: cargo build --package draugr-time --release --features gpu
       - name: Launch desktop (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -49,12 +49,15 @@ jobs:
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-lifecycle" xvfb-run -a target/release/draugr-time --lifecycle-test
           dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 DRAUGR_TIME_DATA_DIR="$RUNNER_TEMP/draugr-time-onboarding" xvfb-run -a target/release/draugr-time --onboarding-test
           XDG_CONFIG_HOME="$RUNNER_TEMP/draugr-time-autostart" target/release/draugr-time --autostart-test
-      - name: Launch GPU build with software fallback (Linux)
+      - name: Launch with hardware acceleration selected (Linux)
         if: runner.os == 'Linux'
         run: |
-          cargo build --package draugr-time --features gpu
-          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/debug/draugr-time --smoke-test
-          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 ICED_BACKEND=tiny-skia xvfb-run -a target/debug/draugr-time --smoke-test
+          # The launches above use the default software renderer; here the stored choice
+          # selects wgpu, which falls back to tiny-skia when Xvfb offers no adapter.
+          export XDG_DATA_HOME="$RUNNER_TEMP/draugr-time-renderer"
+          mkdir -p "$XDG_DATA_HOME/DraugrTime"
+          echo '"hardware"' > "$XDG_DATA_HOME/DraugrTime/renderer.json"
+          dbus-run-session -- env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a target/release/draugr-time --smoke-test
       - name: Launch desktop (macOS)
         if: runner.os == 'macOS'
         run: |

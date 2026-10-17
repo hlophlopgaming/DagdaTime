@@ -185,3 +185,12 @@ colors, CSV/JSON export, theme changes and close/reopen with undo preserved.
 On real 1440p/4K displays, measure smaps_rollup before/after maximize, restore
 and close; compare font mappings after Cyrillic/CJK/emoji titles. Subminute
 Week bins are intentionally approximate; use Day for exact selection/editing.
+
+## 2026-10-17 — wgpu renderer in the tray
+
+Reported on Linux after opening and closing the window: the tray-only process
+held 29 MiB PSS with the wgpu renderer against 11 MiB with tiny-skia. Closing
+the window does not release the graphics driver or its device memory, so GPU
+rendering is an opt-in setting (Settings → Hardware acceleration) and software
+stays the default. Charts redraw visibly faster with wgpu. One machine, measured
+by the user; use `scripts/measure_idle.py` to repeat it on others.

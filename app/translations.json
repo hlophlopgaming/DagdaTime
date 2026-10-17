@@ -283,7 +283,9 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts."
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.",
+    "Hardware acceleration": "Hardware acceleration",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time."
   },
   "ru": {
     "Day": "День",
@@ -569,7 +571,9 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "Вне расписания запись приостанавливается. Отключите расписание, чтобы записывать в другое время.",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "Удалить выбранный диапазон дня или весь показанный день, если ничего не выбрано. История вне диапазона сохраняется.",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS: разрешите универсальный доступ. GNOME/KDE Wayland: установите и включите мост. Для X11, Sway и Hyprland мост не нужен.",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Мост установлен. GNOME: выйдите и войдите в сеанс, затем включите Draugr Time Watcher в «Расширениях». KDE: включите Draugr Time Watcher в «Параметры системы → Управление окнами → Сценарии KWin»."
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Мост установлен. GNOME: выйдите и войдите в сеанс, затем включите Draugr Time Watcher в «Расширениях». KDE: включите Draugr Time Watcher в «Параметры системы → Управление окнами → Сценарии KWin».",
+    "Hardware acceleration": "Аппаратное ускорение",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "Рисует с помощью видеокарты: графики плавнее, но памяти уходит больше, даже когда приложение только в трее. Применяется после перезапуска Draugr Time."
   },
   "de": {
     "Day": "Tag",
@@ -855,7 +859,9 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "Außerhalb des Plans pausiert die Aufzeichnung. Den Plan deaktivieren, um zu anderen Zeiten aufzuzeichnen.",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "Die Tagesauswahl löschen, ohne Auswahl den angezeigten Tag. Verlauf außerhalb des Bereichs bleibt erhalten.",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS: Zugriff über Bedienungshilfen erlauben. GNOME/KDE Wayland: Anbindung installieren und aktivieren. X11, Sway und Hyprland benötigen keine.",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Anbindung installiert. GNOME: ab- und anmelden, dann Draugr Time Watcher in Erweiterungen aktivieren. KDE: in Systemeinstellungen → Fensterverwaltung → KWin-Skripte aktivieren."
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Anbindung installiert. GNOME: ab- und anmelden, dann Draugr Time Watcher in Erweiterungen aktivieren. KDE: in Systemeinstellungen → Fensterverwaltung → KWin-Skripte aktivieren.",
+    "Hardware acceleration": "Hardwarebeschleunigung",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "Zeichnet mit der Grafikkarte: flüssigere Diagramme, aber mehr Speicherbedarf, auch nur im Infobereich. Gilt nach einem Neustart von Draugr Time."
   },
   "fr": {
     "Day": "Jour",
@@ -1141,7 +1147,9 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "L’enregistrement s’arrête hors des horaires. Désactivez les horaires pour enregistrer à tout moment.",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "Supprime la sélection du jour, ou le jour affiché sans sélection. L’historique hors de la plage est conservé.",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS : autorisez l’accessibilité. GNOME/KDE Wayland : installez et activez le pont. Aucun pont requis pour X11, Sway ou Hyprland.",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Pont installé. GNOME : reconnectez la session, puis activez Draugr Time Watcher dans Extensions. KDE : activez-le dans Configuration du système → Gestion des fenêtres → Scripts KWin."
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Pont installé. GNOME : reconnectez la session, puis activez Draugr Time Watcher dans Extensions. KDE : activez-le dans Configuration du système → Gestion des fenêtres → Scripts KWin.",
+    "Hardware acceleration": "Accélération matérielle",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "Dessine avec la carte graphique : graphiques plus fluides, mais davantage de mémoire, même dans la zone de notification seule. S’applique après le redémarrage de Draugr Time."
   },
   "es": {
     "Day": "Día",
@@ -1427,7 +1435,9 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "La grabación se pausa fuera del horario. Desactive el horario para grabar en otras horas.",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "Elimina la selección del día, o el día mostrado si no hay selección. Se conserva el historial fuera del intervalo.",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS: permita accesibilidad. GNOME/KDE Wayland: instale y active el puente. X11, Sway e Hyprland no lo necesitan.",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Puente instalado. GNOME: cierre e inicie sesión y active Draugr Time Watcher en Extensiones. KDE: actívelo en Preferencias del sistema → Gestión de ventanas → Guiones de KWin."
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Puente instalado. GNOME: cierre e inicie sesión y active Draugr Time Watcher en Extensiones. KDE: actívelo en Preferencias del sistema → Gestión de ventanas → Guiones de KWin.",
+    "Hardware acceleration": "Aceleración por hardware",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "Dibuja con la tarjeta gráfica: gráficos más fluidos, pero más memoria, incluso solo en la bandeja. Se aplica al reiniciar Draugr Time."
   },
   "pt": {
     "Day": "Dia",
@@ -1713,7 +1723,9 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "A gravação pausa fora do horário. Desative o horário para gravar em outros momentos.",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "Exclui a seleção do dia, ou o dia exibido se nada estiver selecionado. O histórico fora do intervalo é preservado.",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS: permita acessibilidade. GNOME/KDE Wayland: instale e ative a integração. X11, Sway e Hyprland não precisam dela.",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Integração instalada. GNOME: saia e entre na sessão, depois ative Draugr Time Watcher em Extensões. KDE: ative em Configurações do sistema → Gerenciamento de janelas → Scripts do KWin."
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "Integração instalada. GNOME: saia e entre na sessão, depois ative Draugr Time Watcher em Extensões. KDE: ative em Configurações do sistema → Gerenciamento de janelas → Scripts do KWin.",
+    "Hardware acceleration": "Aceleração de hardware",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "Desenha com a placa de vídeo: gráficos mais fluidos, mas mais memória, mesmo apenas na bandeja. Aplica-se após reiniciar o Draugr Time."
   },
   "zh": {
     "Day": "日视图",
@@ -1999,7 +2011,9 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "计划时段外将暂停记录。如需在其他时间记录，请禁用计划。",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "删除日视图中的选定时段；未选择时删除当前显示的整天。范围外的历史记录会保留。",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS：允许辅助功能访问。GNOME/KDE Wayland：安装并启用桥接组件。X11、Sway 和 Hyprland 无需桥接。",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "桥接已安装。GNOME：注销并重新登录，然后在“扩展”中启用 Draugr Time Watcher。KDE：在系统设置 → 窗口管理 → KWin 脚本中启用它。"
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "桥接已安装。GNOME：注销并重新登录，然后在“扩展”中启用 Draugr Time Watcher。KDE：在系统设置 → 窗口管理 → KWin 脚本中启用它。",
+    "Hardware acceleration": "硬件加速",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "使用显卡绘制：图表更流畅，但占用更多内存，即使只在托盘中运行也是如此。重启 Draugr Time 后生效。"
   },
   "ja": {
     "Day": "日",
@@ -2285,6 +2299,8 @@
     "Outside the schedule, recording pauses. Disable the schedule to resume outside its hours.": "時間外は記録が一時停止します。時間外も記録するにはスケジュールを無効にしてください。",
     "Delete the Day selection, or the displayed day if nothing is selected. History outside the range is preserved.": "日表示の選択範囲を削除します。未選択なら表示中の1日全体が対象です。範囲外の履歴は保持されます。",
     "macOS: allow Accessibility access. GNOME/KDE Wayland: install and enable the bridge. X11, Sway and Hyprland need no bridge.": "macOS：アクセシビリティを許可。GNOME/KDE Wayland：ブリッジをインストールして有効化。X11、Sway、Hyprlandでは不要です。",
-    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "ブリッジをインストールしました。GNOME：再ログイン後、拡張機能でDraugr Time Watcherを有効化。KDE：システム設定 → ウィンドウ管理 → KWinスクリプトで有効化。"
+    "Bridge installed. GNOME: log out and back in, then enable Draugr Time Watcher in Extensions. KDE: enable Draugr Time Watcher in System Settings → Window Management → KWin Scripts.": "ブリッジをインストールしました。GNOME：再ログイン後、拡張機能でDraugr Time Watcherを有効化。KDE：システム設定 → ウィンドウ管理 → KWinスクリプトで有効化。",
+    "Hardware acceleration": "ハードウェアアクセラレーション",
+    "Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time.": "グラフィックカードで描画します。グラフはより滑らかになりますが、トレイ常駐時もメモリ使用量が増えます。Draugr Time の再起動後に適用されます。"
   }
 }

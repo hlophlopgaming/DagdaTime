@@ -770,8 +770,13 @@ highlight, theme and date; canvas also invalidates on size changes.
   `linux-theme-detection` would do the same through the extra `mundy` crate with
   its own connection; reusing zbus adds no dependency.
 - **Renderer.** Keep tiny-skia as the default: it needs no GPU driver, shader
-  compilation or device buffers, which suits a mostly-hidden tracker. A `gpu`
-  Cargo feature enables Iced's wgpu renderer with tiny-skia as the automatic
-  fallback; `ICED_BACKEND=tiny-skia` forces software rendering. Whether wgpu
-  pays off (lower redraw CPU against higher resident and device memory) must be
-  measured per machine; `scripts/measure_idle.py` compares builds.
+  compilation or device buffers, which suits a mostly-hidden tracker. Release
+  builds enable the `gpu` feature (Iced's wgpu renderer with tiny-skia as the
+  automatic fallback) and Settings offers **Hardware acceleration**, off by
+  default, stored per machine in `renderer.json` beside `language.json` and applied
+  before Iced starts by setting `ICED_BACKEND=tiny-skia` for software mode. Iced's
+  wgpu compositor rejects a non-wgpu backend name before creating an instance, so
+  software mode in a GPU-capable build loads no driver. A user-set `ICED_BACKEND`
+  wins. Reason: on Linux, wgpu drew charts visibly faster, but closing the window
+  did not release the driver; the tray-only process measured 29 MiB PSS against
+  11 MiB with tiny-skia.

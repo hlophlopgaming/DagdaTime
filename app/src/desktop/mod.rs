@@ -12,6 +12,7 @@ mod setup;
 use localization::{message as localized, tr, LocaleProvider};
 mod memory;
 mod model;
+mod rendering;
 mod runtime;
 mod single_instance;
 mod startup;
@@ -98,6 +99,8 @@ pub enum Message {
     PortalThemeChanged(Option<iced::theme::Mode>),
     Start,
     AutoStart(bool),
+    #[cfg(feature = "gpu")]
+    HardwareAcceleration(bool),
     Pause(Option<i64>),
     Resume,
     Quit,
@@ -187,6 +190,11 @@ struct State {
     pending_dir: Option<String>,
     autostart_enabled: bool,
     autostart_error: String,
+    /// Saved renderer choice; Iced only reads it at the next launch.
+    #[cfg(feature = "gpu")]
+    renderer: rendering::Renderer,
+    #[cfg(feature = "gpu")]
+    renderer_error: String,
 }
 impl State {
     fn boot() -> (Self, Task<Message>) {
@@ -307,6 +315,12 @@ impl State {
                 .and_then(|startup| startup.is_enabled())
                 .unwrap_or(false),
             autostart_error: String::new(),
+            #[cfg(feature = "gpu")]
+            renderer: rendering::path()
+                .and_then(|path| rendering::load(&path))
+                .unwrap_or_default(),
+            #[cfg(feature = "gpu")]
+            renderer_error: String::new(),
         };
         if (runtime_test && !onboarding_test)
             || launch.record_on_launch
@@ -1023,6 +1037,21 @@ impl State {
             #[cfg(target_os = "linux")]
             Message::PortalThemeChanged(None) => {}
             Message::Start => self.start(),
+            #[cfg(feature = "gpu")]
+            Message::HardwareAcceleration(enabled) => {
+                let renderer = if enabled {
+                    rendering::Renderer::Hardware
+                } else {
+                    rendering::Renderer::Software
+                };
+                match rendering::path().and_then(|path| rendering::save(&path, renderer)) {
+                    Ok(()) => {
+                        self.renderer = renderer;
+                        self.renderer_error.clear();
+                    }
+                    Err(error) => self.renderer_error = error.to_string(),
+                }
+            }
             Message::AutoStart(enabled) => match startup::SystemStartup::new()
                 .and_then(|mut provider| startup::set_enabled(&mut provider, enabled))
             {
@@ -1646,6 +1675,20 @@ impl State {
                 .color(Color::from_rgb8(200, 75, 75))
         ]
         .spacing(8);
+        #[cfg(feature = "gpu")]
+        let autostart = autostart.push(
+            column![
+                checkbox(self.renderer == rendering::Renderer::Hardware)
+                    .label(tr("Hardware acceleration"))
+                    .on_toggle(Message::HardwareAcceleration),
+                text(tr("Draws with the graphics card: smoother charts, but more memory, even while only in the tray. Applies after restarting Draugr Time."))
+                    .size(12),
+                text(localization::error(&self.renderer_error))
+                    .size(12)
+                    .color(Color::from_rgb8(200, 75, 75))
+            ]
+            .spacing(8),
+        );
         let resource=column![image(image::Handle::from_bytes(crate::branding::logo(self.theme.palette().background.r < 0.5))).width(64).height(64).filter_method(image::FilterMethod::Nearest),text(tr("Draugr Time")).size(22),text(concat!("Version ", env!("CARGO_PKG_VERSION"), " · GPL-3.0-only\nhttps://github.com/hlophlopgaming/DraugrTime")),text(tr("Native Rust UI · tiny-skia software renderer")).size(14),text(localized("Canvas draws: {count} · max geometry build: {duration} ms",&[("count",self.stats.frames.load(Ordering::Relaxed).to_string()),("duration",format!("{:.2}",self.stats.max_build_us.load(Ordering::Relaxed) as f64/1000.0))])).size(13),text(tr("Closing the window releases its renderer and keeps recording. Open it again from the tray. Quit stops the process. Themes, tray behavior and OS permissions need verification on each platform.")).size(13)].spacing(12);
         scrollable(
             column![
@@ -2114,6 +2157,8 @@ pub fn run() -> iced::Result {
         }
     }
 
+    // Must run before Iced creates its compositor.
+    rendering::apply();
     let result = iced::daemon(State::boot, State::update, State::view)
         .settings(iced::Settings {
             id: Some("org.draugrtime.app".into()),

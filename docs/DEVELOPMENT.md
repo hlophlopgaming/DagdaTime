@@ -12,13 +12,17 @@ cargo run --package draugr-time
 cargo build --package draugr-time --release
 ```
 
-The software renderer is the default. To try GPU rendering, build with the
-`gpu` feature; Iced uses wgpu when an adapter is available and falls back to
-tiny-skia otherwise. `ICED_BACKEND=tiny-skia` forces the software renderer.
+Release builds use the `gpu` feature, which adds Iced's wgpu renderer beside
+tiny-skia. Software rendering stays the default; Settings → **Hardware
+acceleration** stores the choice in `renderer.json` in the local application
+folder and applies it at the next launch. Hardware mode uses wgpu when an adapter
+is available and falls back to tiny-skia otherwise. An `ICED_BACKEND` set in the
+environment overrides the stored choice. Plain `cargo run` builds contain only
+tiny-skia and do not show the setting.
 
 ```sh
 cargo run --release --package draugr-time --features gpu
-ICED_BACKEND=tiny-skia target/release/draugr-time
+ICED_BACKEND=wgpu target/release/draugr-time
 ```
 
 To compare idle CPU, wakeups and memory between builds on Linux, keep the window
